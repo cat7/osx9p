@@ -3,7 +3,7 @@
 #include <sys/vnode_if.h>
 
 typedef int vnop_t(void *);
-__private_extern__ vnop_t **vnode_op_9p;
+__private_extern__ vnop_t **vnode_op_9p = NULL;
 static char fsname[MFSNAMELEN] = VFS9PNAME;
 
 enum {
