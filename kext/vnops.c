@@ -1038,6 +1038,7 @@ vnop_reclaim_9p(struct vnop_reclaim_args *ap)
 	}
 	lck_mtx_unlock(nmp->nodelck);
 	lck_rw_free(np->lck, lck_grp_9p);
+	lock_free_9p(np);
 	free_9p(np->dirents);
 	free_9p(np);
 	return 0;
@@ -1428,6 +1429,7 @@ static struct vnodeopv_entry_desc vnode_entry_desc_9p[] = {
 	{ &vnop_readdir_desc,		(vnop_t *)vnop_readdir_9p },
 	{ &vnop_readlink_desc,		(vnop_t *)vnop_readlink_9p },
 	{ &vnop_reclaim_desc,		(vnop_t *)vnop_reclaim_9p },
+	{ &vnop_advlock_desc,		(vnop_t *)vnop_advlock_9p },
 	{ &vnop_pathconf_desc,		(vnop_t *)vnop_pathconf_9p },
 	{ &vnop_pagein_desc,		(vnop_t *)vnop_pagein_9p },
 	{ &vnop_pageout_desc,		(vnop_t *)vnop_pageout_9p },

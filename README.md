@@ -36,7 +36,8 @@ on 10.5.
 
 ## Limitations
 
-- Advisory locks (`flock`) are not supported.
+- Advisory locks (`flock`, `fcntl`) hold between guest processes only;
+  the host does not see them.
 - On 10.4, Carbon and the Finder store type/creator and resource forks in
   `._` files; `cp` and other BSD tools use the native attributes.
 

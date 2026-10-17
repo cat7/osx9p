@@ -39,6 +39,7 @@ enum {
 #include <sys/ubc.h>
 #include <sys/malloc.h>
 #include <sys/xattr.h>
+#include <sys/vnode_if.h>
 #include <kern/locks.h>
 #include <libkern/OSAtomic.h>
 #include <string.h>
@@ -157,6 +158,7 @@ struct node_9p {
 	openfid_9p openfid[NOFIDS];
 	dirent_9p *dirents;
 	uint32_t ndirents;
+	struct lock_9p *locks;
 };
 
 enum {
@@ -217,6 +219,12 @@ __private_extern__ void nunlock_9p(node_9p*);
 __private_extern__ struct vnodeopv_desc vnodeopv_desc_9p;
 
 __private_extern__ lck_grp_t *lck_grp_9p;
+
+/* lock.c */
+__private_extern__ void lock_init_9p(void);
+__private_extern__ void lock_fini_9p(void);
+__private_extern__ void lock_free_9p(node_9p*);
+__private_extern__ int vnop_advlock_9p(struct vnop_advlock_args*);
 
 /* virtio9p.cpp */
 void v9p_transport_init(void);

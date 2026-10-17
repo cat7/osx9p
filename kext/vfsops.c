@@ -240,6 +240,8 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			VOL_CAP_INT_EXTENDED_ATTR;
 		c->capabilities[VOL_CAPABILITIES_INTERFACES] =
 			VOL_CAP_INT_ATTRLIST |
+			VOL_CAP_INT_ADVLOCK |
+			VOL_CAP_INT_FLOCK |
 			VOL_CAP_INT_EXTENDED_ATTR;
 		c->valid[VOL_CAPABILITIES_RESERVED1] = 0;
 		c->valid[VOL_CAPABILITIES_RESERVED2] = 0;
@@ -365,9 +367,11 @@ osx9p_start(kmod_info_t *ki, void *d)
 	(void)ki;
 	(void)d;
 	lck_grp_9p = lck_grp_alloc_init(VFS9PNAME, LCK_GRP_ATTR_NULL);
+	lock_init_9p();
 	v9p_transport_init();
 	if (vfs_fsadd(&vfs_fsentry_9p, &vfstable_9p)) {
 		v9p_transport_fini();
+		lock_fini_9p();
 		lck_grp_free(lck_grp_9p);
 		return KERN_FAILURE;
 	}
@@ -383,6 +387,7 @@ osx9p_stop(kmod_info_t *ki, void *d)
 		return KERN_FAILURE;
 	vfstable_9p = NULL;
 	v9p_transport_fini();
+	lock_fini_9p();
 	lck_grp_free(lck_grp_9p);
 	return KERN_SUCCESS;
 }
