@@ -49,7 +49,7 @@ now_us(void)
 }
 
 /* refresh np->attr; caller holds the node lock exclusive */
-static int
+__private_extern__ int
 ngetattr_9p(node_9p *np, int force)
 {
 	attr_9p a;
@@ -207,7 +207,7 @@ nwalkget_9p(node_9p *dnp, char *name, int nname, vnode_t dvp, vnode_t *vpp,
 	    struct componentname *cnp, vfs_context_t ctx)
 {
 	mount_9p *nmp;
-	fid_9p fid;
+	fid_9p fid, ofid;
 	qid_9p qid;
 	int e;
 
@@ -215,6 +215,13 @@ nwalkget_9p(node_9p *dnp, char *name, int nname, vnode_t dvp, vnode_t *vpp,
 	if ((e = walk_9p(nmp, dnp->fid, name, nname, &fid, &qid)))
 		return e;
 	e = nget_9p(nmp, fid, qid, dvp, vpp, cnp, ctx);
+	if (e == 0 && NTO9P(*vpp)->fid != fid) {
+		/* renamed on the host, the old fid names nothing: keep the new one */
+		ofid = NTO9P(*vpp)->fid;
+		NTO9P(*vpp)->fid = fid;
+		NTO9P(*vpp)->attrtime = 0;
+		fid = ofid;
+	}
 	if (e || NTO9P(*vpp)->fid != fid)
 		clunk_9p(nmp, fid);
 	if (e == 0) {
@@ -541,6 +548,10 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 	VATTR_RETURN(vap, va_fileid, np->id);
 	VATTR_RETURN(vap, va_linkid, np->id);
 	VATTR_RETURN(vap, va_parentid, id_parent_9p(nmp, np->id));
+	/* the host may have renamed it since the vnode got its name */
+	if (VATTR_IS_ACTIVE(vap, va_name) && vap->va_name &&
+	    id_name_9p(nmp, np->id, vap->va_name, MAXPATHLEN) == 0)
+		VATTR_SET_SUPPORTED(vap, va_name);
 	VATTR_RETURN(vap, va_fsid, vfs_statfs(nmp->mp)->f_fsid.val[0]);
 	VATTR_RETURN(vap, va_filerev, np->qid.vers);
 	VATTR_RETURN(vap, va_gen, 0);

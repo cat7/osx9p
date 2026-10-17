@@ -209,6 +209,30 @@ id_parent_9p(mount_9p *nmp, uint32_t id)
 	return p;
 }
 
+/* the name id was last seen under */
+__private_extern__ int
+id_name_9p(mount_9p *nmp, uint32_t id, char *buf, int len)
+{
+	struct idtab_9p *t;
+	struct id_9p *r;
+	int e, n;
+
+	if (id == ID_ROOT)
+		return ENOENT;
+	t = nmp->ids;
+	lck_mtx_lock(t->mtx);
+	r = findid(t, id);
+	e = ENOENT;
+	if (r && r->name) {
+		n = MIN((int)strlen(r->name), len - 1);
+		bcopy(r->name, buf, n);
+		buf[n] = 0;
+		e = 0;
+	}
+	lck_mtx_unlock(t->mtx);
+	return e;
+}
+
 /* parent, name (caller frees) and host object of id */
 static int
 id_where(mount_9p *nmp, uint32_t id, uint32_t *parent, char **name, uint64_t *qpath)
@@ -254,7 +278,7 @@ id_vget_9p(mount_9p *nmp, uint32_t id, vnode_t *vpp, vfs_context_t ctx, int dept
 	uint64_t qpath;
 	node_9p *dnp;
 	vnode_t dvp, vp;
-	fid_9p fid;
+	fid_9p fid, ofid;
 	qid_9p qid;
 	char *name;
 	int e;
@@ -271,14 +295,18 @@ id_vget_9p(mount_9p *nmp, uint32_t id, vnode_t *vpp, vfs_context_t ctx, int dept
 	if ((e = id_where(nmp, id, &parent, &name, &qpath)))
 		return e;
 
-	/* cached? */
+	/* cached, and its fid still names it? */
 	bzero(&qid, sizeof(qid));
 	qid.path = qpath;
 	if (nget_9p(nmp, NOFID, qid, NULL, &vp, NULL, ctx) == 0) {
+		e = ngetattr_9p(NTO9P(vp), 0);
 		nunlock_9p(NTO9P(vp));
-		free_9p(name);
-		*vpp = vp;
-		return 0;
+		if (e != ENOENT) {
+			free_9p(name);
+			*vpp = vp;
+			return 0;
+		}
+		vnode_put(vp);
 	}
 
 	if ((e = id_vget_9p(nmp, parent, &dvp, ctx, depth + 1))) {
@@ -296,6 +324,13 @@ id_vget_9p(mount_9p *nmp, uint32_t id, vnode_t *vpp, vfs_context_t ctx, int dept
 	}
 	if (e == 0) {
 		e = nget_9p(nmp, fid, qid, dvp, &vp, NULL, ctx);
+		if (e == 0 && NTO9P(vp)->fid != fid) {
+			/* renamed on the host: keep the fid that names it now */
+			ofid = NTO9P(vp)->fid;
+			NTO9P(vp)->fid = fid;
+			NTO9P(vp)->attrtime = 0;
+			fid = ofid;
+		}
 		if (e || NTO9P(vp)->fid != fid)
 			clunk_9p(nmp, fid);
 		if (e == 0) {

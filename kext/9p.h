@@ -218,6 +218,7 @@ __private_extern__ void free_9p(void*);
 
 /* vnops.c */
 __private_extern__ int nget_9p(mount_9p*, fid_9p, qid_9p, vnode_t, vnode_t*, struct componentname*, vfs_context_t);
+__private_extern__ int ngetattr_9p(node_9p*, int);
 __private_extern__ void nlock_9p(node_9p*, lcktype_9p);
 __private_extern__ void nunlock_9p(node_9p*);
 __private_extern__ struct vnodeopv_desc vnodeopv_desc_9p;
@@ -231,6 +232,7 @@ __private_extern__ uint32_t id_get_9p(mount_9p*, uint64_t);
 __private_extern__ void id_link_9p(mount_9p*, uint32_t, uint32_t, const char*, int);
 __private_extern__ void id_forget_9p(mount_9p*, uint32_t);
 __private_extern__ uint32_t id_parent_9p(mount_9p*, uint32_t);
+__private_extern__ int id_name_9p(mount_9p*, uint32_t, char*, int);
 __private_extern__ int id_vget_9p(mount_9p*, uint32_t, vnode_t*, vfs_context_t, int);
 
 /* lock.c */
