@@ -508,6 +508,7 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 	struct vnode_attr *vap;
 	node_9p *np;
 	mount_9p *nmp;
+	static const struct timespec nobackup;
 	int e;
 
 	np = NTO9P(ap->a_vp);
@@ -536,6 +537,7 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 		VATTR_RETURN(vap, va_create_time, np->attr.btime);
 	else
 		VATTR_RETURN(vap, va_create_time, np->attr.mtime);
+	VATTR_RETURN(vap, va_backup_time, nobackup);
 	VATTR_RETURN(vap, va_fileid, np->id);
 	VATTR_RETURN(vap, va_linkid, np->id);
 	VATTR_RETURN(vap, va_parentid, id_parent_9p(nmp, np->id));
