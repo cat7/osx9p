@@ -233,7 +233,8 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			VOL_CAP_INT_FLOCK |
 			VOL_CAP_INT_EXTENDED_SECURITY |
 			VOL_CAP_INT_USERACCESS;
-		c->capabilities[VOL_CAPABILITIES_INTERFACES] = 0;
+		c->capabilities[VOL_CAPABILITIES_INTERFACES] =
+			VOL_CAP_INT_ATTRLIST;
 		c->valid[VOL_CAPABILITIES_RESERVED1] = 0;
 		c->valid[VOL_CAPABILITIES_RESERVED2] = 0;
 		c->capabilities[VOL_CAPABILITIES_RESERVED1] = 0;
@@ -244,16 +245,53 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 	if (VFSATTR_IS_ACTIVE(ap, f_attributes)) {
 		vol_attributes_attr_t *a = &ap->f_attributes;
 
-		a->validattr.commonattr = a->nativeattr.commonattr = 0;
+		a->validattr.commonattr = a->nativeattr.commonattr =
+			ATTR_CMN_NAME |
+			ATTR_CMN_DEVID |
+			ATTR_CMN_FSID |
+			ATTR_CMN_OBJTYPE |
+			ATTR_CMN_OBJTAG |
+			ATTR_CMN_OBJID |
+			ATTR_CMN_OBJPERMANENTID |
+			ATTR_CMN_PAROBJID |
+			ATTR_CMN_CRTIME |
+			ATTR_CMN_MODTIME |
+			ATTR_CMN_CHGTIME |
+			ATTR_CMN_ACCTIME |
+			ATTR_CMN_FNDRINFO |
+			ATTR_CMN_OWNERID |
+			ATTR_CMN_GRPID |
+			ATTR_CMN_ACCESSMASK |
+			ATTR_CMN_FLAGS |
+			ATTR_CMN_USERACCESS;
 		a->validattr.volattr = a->nativeattr.volattr =
-			ATTR_VOL_NAME |
+			ATTR_VOL_FSTYPE |
+			ATTR_VOL_SIGNATURE |
+			ATTR_VOL_SIZE |
+			ATTR_VOL_SPACEFREE |
+			ATTR_VOL_SPACEAVAIL |
+			ATTR_VOL_MINALLOCATION |
+			ATTR_VOL_ALLOCATIONCLUMP |
 			ATTR_VOL_IOBLOCKSIZE |
+			ATTR_VOL_MOUNTPOINT |
+			ATTR_VOL_NAME |
 			ATTR_VOL_MOUNTFLAGS |
 			ATTR_VOL_MOUNTEDDEVICE |
 			ATTR_VOL_CAPABILITIES |
-			ATTR_VOL_ATTRIBUTES;
-		a->validattr.dirattr = a->nativeattr.dirattr = 0;
-		a->validattr.fileattr = a->nativeattr.fileattr = 0;
+			ATTR_VOL_ATTRIBUTES |
+			ATTR_VOL_INFO;
+		a->validattr.dirattr = a->nativeattr.dirattr =
+			ATTR_DIR_LINKCOUNT |
+			ATTR_DIR_MOUNTSTATUS;
+		a->validattr.fileattr = a->nativeattr.fileattr =
+			ATTR_FILE_LINKCOUNT |
+			ATTR_FILE_TOTALSIZE |
+			ATTR_FILE_ALLOCSIZE |
+			ATTR_FILE_IOBLOCKSIZE |
+			ATTR_FILE_DATALENGTH |
+			ATTR_FILE_DATAALLOCSIZE |
+			ATTR_FILE_RSRCLENGTH |
+			ATTR_FILE_RSRCALLOCSIZE;
 		a->validattr.forkattr = a->nativeattr.forkattr = 0;
 		VFSATTR_SET_SUPPORTED(ap, f_attributes);
 	}
