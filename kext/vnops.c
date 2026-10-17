@@ -1358,6 +1358,16 @@ xset_9p(node_9p *np, const char *name, uint8_t *buf, uint64_t len, uint32_t flag
 	int e, e2;
 
 	nmp = np->nmp;
+	/* a macOS host overwrites a resource fork in place, keeping its tail */
+	if (len && isrsrc(name) &&
+	    xattrwalk_9p(nmp, np->fid, name, &fid, &off) == 0) {
+		clunk_9p(nmp, fid);
+		if (off > len) {
+			if ((e = xset_9p(np, name, NULL, 0, 0)))
+				return e;
+			flags &= ~L_XATTR_REPLACE;
+		}
+	}
 	if ((e = walk_9p(nmp, np->fid, NULL, 0, &fid, &qid)))
 		return e;
 	if ((e = xattrcreate_9p(nmp, fid, name, len, flags))) {
