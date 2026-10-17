@@ -1,26 +1,9 @@
-TARG=mount_9p
+SDK	?= /Developer/SDKs/MacOSX10.4u.sdk
+CC	= gcc-4.0
+CFLAGS	= -arch ppc -isysroot $(SDK) -mmacosx-version-min=10.4 -Os -Wall
 
-OFILES=\
-	mount.o\
-	crypt.o\
-
-HFILES=\
-	../kext/plan9.h\
-	../kext/9p.h\
-
-all: $(TARG)
-
-CFLAGS+=-I/usr/local/include
-LFLAGS+=-lutil
-
-$(TARG): $(OFILES)
-	$(CC) $(ARCHS) -o $(TARG) $(OFILES) $(LFLAGS)
-
-%.o: %.c $(HFILES)
-	$(CC) $(ARCHS) $(CFLAGS) -c $*.c
-
-%.o: ../kext/%.c $(HFILES)
-	$(CC) $(ARCHS) $(CFLAGS) -c ../kext/$*.c
+mount_9p: mount_9p.c ../kext/9p.h
+	$(CC) $(CFLAGS) -o $@ mount_9p.c
 
 clean:
-	rm -fr $(TARG) *.o *.dSYM
+	rm -f mount_9p

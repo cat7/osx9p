@@ -1,35 +1,38 @@
-CFLAGS+=-mkernel -nostdinc  -fasm-blocks\
- -force_cpusubtype_ALL -msoft-float -Os\
- -finline -std=c99\
- -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT\
- -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)\
- -I$(SYSROOT)/System/Library/Frameworks/Kernel.framework/Headers\
+SDK	?= /Developer/SDKs/MacOSX10.4u.sdk
+KH	= $(SDK)/System/Library/Frameworks/Kernel.framework/Headers
+CC	= gcc-4.0
+CXX	= g++-4.0
+ARCH	= -arch ppc
+FLAGS	= $(ARCH) -mlong-branch -force_cpusubtype_ALL -nostdinc -fno-common -msoft-float -Os -g \
+	  -fno-builtin -finline -static \
+	  -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
+	  -mmacosx-version-min=10.4 -isysroot $(SDK) -I$(KH) -I. \
+	  -Wall -Wno-unused-parameter
+CFLAGS	= $(FLAGS) -std=gnu99
+CXXFLAGS = $(FLAGS) -fno-rtti -fno-exceptions -fcheck-new -fapple-kext
+LDFLAGS	= $(ARCH) -isysroot $(SDK) -mmacosx-version-min=10.4 -nostdlib \
+	  -static -r -lkmodc++ -lkmod -lcc_kext
 
-LFLAGS+=-Xlinker -kext -nostdlib -lkmod
+OBJS	= kmod.o vfsops.o vnops.o proto.o virtio9p.o
+HDRS	= 9p.h virtio9p.h
+KEXT	= osx9p.kext
 
-TARG=9p
+all: $(KEXT)
 
-OFILES=\
-	auth.o\
-	crypt.o\
-	fcall.o\
-	proto.o\
-	socket.o\
-	vfsops.o\
-	vnops.o\
+$(KEXT): osx9p Info.plist
+	rm -rf $@
+	mkdir -p $@/Contents/MacOS
+	cp Info.plist $@/Contents/
+	cp osx9p $@/Contents/MacOS/
 
-HFILES=\
-	9p.h\
-	fcall.h\
-	plan9.h\
+osx9p: $(OBJS)
+	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
 
-all: $(TARG)
+%.o: %.c $(HDRS)
+	$(CC) $(CFLAGS) -c $<
 
-$(TARG): $(OFILES)
-	$(CC) $(ARCHS) -o $@ $(OFILES) $(LFLAGS)
-
-%.o: %.c $(HFILES)
-	$(CC) $(ARCHS) $(CFLAGS) -c $*.c
+%.o: %.cpp $(HDRS)
+	$(CXX) $(CXXFLAGS) -c $<
 
 clean:
-	rm -fr $(TARG) *.o *.dSYM
+	rm -rf $(KEXT) osx9p *.o

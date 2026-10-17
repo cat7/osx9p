@@ -1,0 +1,4 @@
+*.o
+kext/osx9p
+kext/osx9p.kext
+mount/mount_9p

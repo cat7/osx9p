@@ -1,38 +1,28 @@
+#ifndef NINEP_H
+#define NINEP_H
+
+#include <stdint.h>
+
 #define VFS9PNAME	"9p"
+#define VERSION9P	"9P2000.L"
+
+#define TAGLEN		64
+#define VOLNAMELEN	256
+
+/* mount(2) data */
+typedef struct {
+	char tag[TAGLEN];
+	char volume[VOLNAMELEN];
+	uint32_t flags;
+} args_9p;
 
 enum {
 	FLAG_CHATTY9P	= 1<<0,
-	FLAG_DSSTORE	= 1<<1,
-	FLAG_DOTU		= 1<<2,
 };
 
-typedef struct {
-	user_addr_t spec;
-	user_addr_t addr;
-	int addrlen;
-	user_addr_t authaddr;
-	int authaddrlen;
-	user_addr_t volume;
-	user_addr_t uname;
-	user_addr_t aname;
-	user_addr_t authkey;
-	int flags;
-} user_args_9p;
-
-typedef struct  {
-	char *spec;
-	struct sockaddr *addr;
-	int addrlen;
-	struct sockaddr *authaddr;
-	int authaddrlen;
-	char *volume;
-	char *uname;
-	char *aname;
-	char *authkey;
-	int flags;
-} args_9p;
-
 #ifdef KERNEL
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/systm.h>
 #include <sys/mount.h>
@@ -43,55 +33,88 @@ typedef struct  {
 #include <sys/kauth.h>
 #include <sys/unistd.h>
 #include <sys/dirent.h>
-#include <sys/socket.h>
-#include <sys/random.h>
 #include <sys/ubc.h>
-#include <sys/un.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
+#include <sys/malloc.h>
+#include <sys/xattr.h>
+#include <kern/locks.h>
 #include <libkern/OSAtomic.h>
+#include <string.h>
+#include "virtio9p.h"
 
-/*
- * msleep/wakeup:
- * connect:
- *	msleep	= connect_9p
- *	wakeup	= upcall_9p
- *	ptr		= nmp->so
- *	cond	= 
- *
- * RPC:
- *	msleep	= rpc_9p
- *	wakeup	= upcall_9p, cancelrpcs_9p
- *	ptr		= r
- *	cond	=
- *
- * send:
- *	msleep	= sndlock_9p
- *	wakeup	= sndunlock_9p
- *	ptr		= nmp->rpcbuf
- *	cond	= F_SENDLOCK, F_WAITSENDLOCK
- *
- * node creation:
- *	msleep	= nget_9p
- *	wakeup	= nget_9p
- *	ptr		= np
- *	cond	= NODE_INIT, NODE_WAITINIT
- *
- */
+#ifndef nelem
+#define nelem(x)	(sizeof(x)/sizeof((x)[0]))
+#endif
+
+typedef uint32_t fid_9p;
+#define NOFID		0xFFFFFFFFU
+#define NOTAG		0xFFFF
+
+typedef struct {
+	uint8_t type;
+	uint32_t vers;
+	uint64_t path;
+} qid_9p;
+
+#define QTDIR		0x80
+#define QTSYMLINK	0x02
+
+/* Rgetattr, the fields we use */
+typedef struct {
+	qid_9p qid;
+	uint32_t mode;
+	uint32_t uid;
+	uint32_t gid;
+	uint64_t nlink;
+	uint64_t rdev;
+	uint64_t size;
+	uint64_t blocks;
+	struct timespec atime, mtime, ctime, btime;
+} attr_9p;
+
+typedef struct {
+	qid_9p qid;
+	uint8_t type;
+	char *name;
+} dirent_9p;
+
+typedef struct {
+	uint32_t bsize;
+	uint64_t blocks, bfree, bavail, files, ffree;
+} fsstat_9p;
+
+/* Tsetattr valid bits */
+enum {
+	SA_MODE		= 0x001,
+	SA_UID		= 0x002,
+	SA_GID		= 0x004,
+	SA_SIZE		= 0x008,
+	SA_ATIME	= 0x010,
+	SA_MTIME	= 0x020,
+	SA_ATIME_SET	= 0x080,
+	SA_MTIME_SET	= 0x100,
+};
+
+/* Linux open flags on the wire */
+enum {
+	L_O_RDONLY	= 0,
+	L_O_WRONLY	= 1,
+	L_O_RDWR	= 2,
+	L_O_CREAT	= 0100,
+	L_O_EXCL	= 0200,
+	L_O_TRUNC	= 01000,
+	L_O_APPEND	= 02000,
+	L_O_DIRECTORY	= 0200000,
+	L_AT_REMOVEDIR	= 0x200,
+};
 
 typedef struct node_9p node_9p;
 typedef struct mount_9p mount_9p;
-typedef struct openfid_9p openfid_9p;
-typedef struct req_9p req_9p;
-typedef struct Qid qid_9p;
-typedef struct Dir dir_9p;
-typedef uint32_t fid_9p;
 
 /* node flags */
 enum {
-	NODE_INIT		= 1<<0,
+	NODE_INIT	= 1<<0,
 	NODE_WAITINIT	= 1<<1,
-	NODE_RECL		= 1<<2,
+	NODE_RECL	= 1<<2,
 	NODE_WAITRECL	= 1<<3,
 	NODE_MMAPPED	= 1<<4,
 };
@@ -102,10 +125,18 @@ typedef enum {
 	NODE_LCK_EXCLUSIVE,
 } lcktype_9p;
 
-struct openfid_9p {
+/* open fids by access mode */
+enum {
+	OFID_RD,
+	OFID_WR,
+	OFID_RDWR,
+	NOFIDS
+};
+
+typedef struct {
 	fid_9p fid;
 	uint32_t ref;
-};
+} openfid_9p;
 
 struct node_9p {
 	LIST_ENTRY(node_9p) next;
@@ -117,87 +148,60 @@ struct node_9p {
 	uint32_t flags;
 	uint32_t iounit;
 	fid_9p fid;
-	dir_9p dir;
-	time_t dirtimer;
-	openfid_9p openfid[3]; /* rd, wr, rdwr */
-	dir_9p *direntries;
-	uint32_t ndirentries;
-};
-
-/* socket flags */
-enum {
-	F_SOCK_CONNECTING	= 1<<1,
-	F_SOCK_UPCALL		= 1<<2,
-	F_SOCK_UNMOUNT		= 1<<3,
+	qid_9p qid;
+	attr_9p attr;
+	uint64_t attrtime;
+	openfid_9p openfid[NOFIDS];
+	dirent_9p *dirents;
+	uint32_t ndirents;
 };
 
 enum {
-	F_SENDLOCK			= 1<<4,
-	F_WAITSENDLOCK		= 1<<5,
-	F_UNMOUNTING		= 1<<6,
-	F_DOTU				= 1<<7,
+	F_UNMOUNTING	= 1<<8,
 };
 
 struct mount_9p {
 	lck_mtx_t *lck;
 	mount_t mp;
 	vnode_t root;
+	v9p_chan *chan;
 
 	uid_t uid;
 	gid_t gid;
 	uint32_t flags;
+	char volume[VOLNAMELEN];
+	char tag[TAGLEN];
 
-	socket_t so;
-	uint32_t soflags;
-
-	char *volume;
-	char *uname;
-	char *aname;
-
-	char *version;
 	uint32_t msize;
-	fid_9p afid;
+	uint32_t nfid;
 
-	fid_9p nfid;
-	uint16_t ntag;
-
-	uint8_t rpcbuf[MAXMSG];
-
-	/* reqs  */
-	TAILQ_HEAD(hreq_9p, req_9p) req;
-	lck_mtx_t *reqlck;
-
-	/* nodes */
 	LIST_HEAD(hnode_9p, node_9p) *node;
 	u_long nodelen;
 	lck_mtx_t *nodelck;
 };
 
-/* auth.c */
-__private_extern__ int authp9any_9p(mount_9p*, fid_9p, struct sockaddr*, char*, char*);
-
 /* proto.c */
-__private_extern__ int version_9p(mount_9p*, char*, char**);
-__private_extern__ int auth_9p(mount_9p*, char*, char*, uint32_t, fid_9p*, qid_9p*);
-__private_extern__ int attach_9p(mount_9p*, char*, char*, fid_9p, uint32_t, fid_9p*, qid_9p*);
+__private_extern__ int version_9p(mount_9p*);
+__private_extern__ int attach_9p(mount_9p*, fid_9p*, qid_9p*);
 __private_extern__ int walk_9p(mount_9p*, fid_9p, char*, int, fid_9p*, qid_9p*);
-__private_extern__ int open_9p(mount_9p*, fid_9p, uint8_t, qid_9p*, uint32_t*);
-__private_extern__ int create_9p(mount_9p*, fid_9p, char*, int, uint8_t, uint32_t, char *ext, qid_9p*, uint32_t*);
+__private_extern__ int getattr_9p(mount_9p*, fid_9p, attr_9p*);
+__private_extern__ int setattr_9p(mount_9p*, fid_9p, uint32_t, uint32_t, uint64_t, struct timespec*, struct timespec*);
+__private_extern__ int lopen_9p(mount_9p*, fid_9p, uint32_t, qid_9p*, uint32_t*);
+__private_extern__ int lcreate_9p(mount_9p*, fid_9p, char*, int, uint32_t, uint32_t, qid_9p*, uint32_t*);
+__private_extern__ int mkdir_9p(mount_9p*, fid_9p, char*, int, uint32_t, qid_9p*);
+__private_extern__ int symlink_9p(mount_9p*, fid_9p, char*, int, char*, qid_9p*);
+__private_extern__ int readlink_9p(mount_9p*, fid_9p, char**);
 __private_extern__ int read_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
 __private_extern__ int write_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
 __private_extern__ int clunk_9p(mount_9p*, fid_9p);
-__private_extern__ int remove_9p(mount_9p*, fid_9p);
-__private_extern__ int stat_9p(mount_9p*, fid_9p, dir_9p**);
-__private_extern__ int wstat_9p(mount_9p*, fid_9p, dir_9p*);
-__private_extern__ int readdirs_9p(mount_9p*, fid_9p, dir_9p**, uint32_t*);
-
-/* socket.c */
-__private_extern__ int connect_9p(mount_9p*, struct sockaddr*);
-__private_extern__ void disconnect_9p(mount_9p*);
-__private_extern__ int recvn_9p(socket_t, void*, size_t);
-__private_extern__ int sendn_9p(socket_t, void*, size_t);
-__private_extern__ int rpc_9p(mount_9p*, Fcall*, Fcall*, void**);
-__private_extern__ void cancelrpcs_9p(mount_9p*);
+__private_extern__ int unlinkat_9p(mount_9p*, fid_9p, char*, int, uint32_t);
+__private_extern__ int renameat_9p(mount_9p*, fid_9p, char*, int, fid_9p, char*, int);
+__private_extern__ int readdirs_9p(mount_9p*, fid_9p, dirent_9p**, uint32_t*);
+__private_extern__ int statfs_9p(mount_9p*, fid_9p, fsstat_9p*);
+__private_extern__ int fsync_9p(mount_9p*, fid_9p);
+__private_extern__ int xattrwalk_9p(mount_9p*, fid_9p, const char*, fid_9p*, uint64_t*);
+__private_extern__ int xattrcreate_9p(mount_9p*, fid_9p, const char*, uint64_t, uint32_t);
+__private_extern__ uint32_t iosize_9p(mount_9p*);
 
 /* vfsops.c */
 __private_extern__ void* malloc_9p(size_t);
@@ -205,23 +209,24 @@ __private_extern__ void free_9p(void*);
 
 /* vnops.c */
 __private_extern__ int nget_9p(mount_9p*, fid_9p, qid_9p, vnode_t, vnode_t*, struct componentname*, vfs_context_t);
-__private_extern__ void	nlock_9p(node_9p*, lcktype_9p);
+__private_extern__ void nlock_9p(node_9p*, lcktype_9p);
 __private_extern__ void nunlock_9p(node_9p*);
+__private_extern__ struct vnodeopv_desc vnodeopv_desc_9p;
 
 __private_extern__ lck_grp_t *lck_grp_9p;
 
-#define MTO9P(m)		((mount_9p*)vfs_fsprivate(m))
-#define NTO9P(vp)		((node_9p*)vnode_fsnode(vp))
-#define QTOI(q)			(q.path | ((uint64_t)q.type<<56))
-#define ITOP(i)			((i)&0xFF0000000000)
-#define ITOT(i)			((i)>>56)
-#ifdef NDEBUG
-#define TRACE()
-#define DEBUG(f, a...)
+/* virtio9p.cpp */
+void v9p_transport_init(void);
+void v9p_transport_fini(void);
+
+#define MTO9P(m)	((mount_9p*)vfs_fsprivate(m))
+#define NTO9P(vp)	((node_9p*)vnode_fsnode(vp))
+#define QTOI(q)		((q).path)
+
+#ifdef DEBUG9P
+#define DEBUG(f, a...)	printf("9p: %s: " f "\n", __FUNCTION__, ## a)
 #else
-#define TRACE()			//printf("%d: %s...\n", proc_selfpid(), __FUNCTION__)
-#define DEBUG(f, a...)	printf("%d: %s: "f"\n", proc_selfpid(),  __FUNCTION__, ## a)
+#define DEBUG(f, a...)
 #endif
 #endif /* KERNEL */
-
-
+#endif
