@@ -53,6 +53,43 @@ freemount_9p(mount_9p *nmp)
 }
 
 static int
+fsidused_9p(mount_t mp, void *arg)
+{
+	int32_t *v;
+
+	v = arg;
+	if (vfs_statfs(mp)->f_fsid.val[0] == v[0])
+		v[1] = 1;
+	return VFS_RETURNED;
+}
+
+/*
+ * The same fsid on every mount of a tag: Carbon on 10.4 caches a volfs
+ * volume's fsid by mount point and keeps it after an unmount, and volfs
+ * keeps the whole fsid, while the type number can change on a kext reload.
+ */
+static void
+stablefsid_9p(mount_t mp, const char *tag)
+{
+	int32_t v[2];
+	uint32_t h;
+	int i;
+
+	for (h = 5381; *tag; tag++)
+		h = h * 33 + (u_char)*tag;
+	for (i = 0; i < 64; i++, h++) {
+		v[0] = 0x7F000000 | (h & 0x00FFFFFF);
+		v[1] = 0;
+		vfs_iterate(0, fsidused_9p, v);
+		if (v[1] == 0) {
+			vfs_statfs(mp)->f_fsid.val[0] = v[0];
+			vfs_statfs(mp)->f_fsid.val[1] = 0x39500000;
+			return;
+		}
+	}
+}
+
+static int
 vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 {
 	struct vfsstatfs *sp;
@@ -104,6 +141,8 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 	nmp->msize = v9p_chan_msize(nmp->chan);
 
 	vfs_getnewfsid(mp);
+	if (ISSET(nmp->flags, FLAG_VOLFS))
+		stablefsid_9p(mp, nmp->tag);
 	vfs_setfsprivate(mp, nmp);
 
 	if ((e = version_9p(nmp)))
