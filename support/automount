@@ -3,7 +3,7 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
 tags() {
-	ioreg -r -c org_cat7_virtio9p -k mount-tag |
+	ioreg -c org_cat7_virtio9p -w 0 |
 	    sed -n 's/.*"mount-tag" = "\(.*\)"$/\1/p'
 }
 
