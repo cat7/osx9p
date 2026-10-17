@@ -64,6 +64,9 @@ public:
 	virtual bool start(IOService *provider);
 	virtual void stop(IOService *provider);
 	virtual void free(void);
+	virtual bool terminate(IOOptionBits options = 0);
+
+	SInt32		fUsers;		/* open channels; vetoes terminate() */
 
 	int rpc(const void *tx, uint32_t txlen, void *rx, uint32_t rxmax, uint32_t *rxlen);
 	uint32_t msize(void) { return fMsize; }
@@ -388,6 +391,14 @@ org_cat7_virtio9p::stop(IOService *provider)
 	super::stop(provider);
 }
 
+bool
+org_cat7_virtio9p::terminate(IOOptionBits options)
+{
+	if (fUsers > 0)
+		return false;
+	return super::terminate(options);
+}
+
 void
 org_cat7_virtio9p::free(void)
 {
@@ -515,6 +526,7 @@ v9p_chan_open(const char *tag)
 		d = (org_cat7_virtio9p *)gDevices->getObject(i);
 		if (strcmp(d->tag(), tag) == 0) {
 			d->retain();
+			OSIncrementAtomic(&d->fUsers);
 			found = d;
 			break;
 		}
@@ -526,8 +538,12 @@ v9p_chan_open(const char *tag)
 extern "C" void
 v9p_chan_close(v9p_chan *ch)
 {
-	if (ch)
-		((org_cat7_virtio9p *)ch)->release();
+	org_cat7_virtio9p *d = (org_cat7_virtio9p *)ch;
+
+	if (d) {
+		OSDecrementAtomic(&d->fUsers);
+		d->release();
+	}
 }
 
 extern "C" uint32_t
