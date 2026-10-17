@@ -5,6 +5,7 @@ LD=/Library/LaunchDaemons/org.cat7.osx9p.automount.plist
 
 mount -t 9p | sed -n 's/^.* on \(.*\) (.*$/\1/p' | while read -r d; do
 	umount "$d" 2>/dev/null || diskutil unmount "$d"
+	rmdir "$d" 2>/dev/null
 done
 launchctl unload "$LD" 2>/dev/null
 rm -f "$LD" /sbin/mount_9p
