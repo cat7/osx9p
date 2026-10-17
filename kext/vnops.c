@@ -59,6 +59,11 @@ ngetattr_9p(node_9p *np, int force)
 		return 0;
 	if ((e = getattr_9p(np->nmp, np->fid, &a)))
 		return e;
+	/* dirty pages past the host's EOF are not pushed yet */
+	if (np->vp && vnode_isreg(np->vp) &&
+	    (np->openfid[OFID_WR].fid != NOFID || np->openfid[OFID_RDWR].fid != NOFID) &&
+	    (off_t)a.size < ubc_getsize(np->vp))
+		a.size = ubc_getsize(np->vp);
 	np->attr = a;
 	np->attrtime = now_us();
 	return 0;
@@ -437,6 +442,8 @@ vnop_open_9p(struct vnop_open_args *ap)
 
 	/* drop cached pages if the host changed the file */
 	if (vnode_isreg(vp)) {
+		/* our own dirty pages first, so the host copy is current */
+		ubc_sync_range(vp, 0, ubc_getsize(vp), UBC_PUSHDIRTY|UBC_SYNC);
 		osize = np->attr.size;
 		omtime = np->attr.mtime;
 		if (ngetattr_9p(np, 1) == 0 &&
@@ -476,8 +483,8 @@ vnop_close_9p(struct vnop_close_args *ap)
 		for (i = 0; i < NOFIDS; i++)
 			if (np->openfid[i].ref)
 				break;
-		if (i == NOFIDS && vnode_isreg(vp)) {
-			/* last close: write back while a handle is open */
+		if ((i == NOFIDS || op != &np->openfid[OFID_RD]) && vnode_isreg(vp)) {
+			/* write back while the handle is still open */
 			nunlock_9p(np);
 			ubc_sync_range(vp, 0, ubc_getsize(vp), UBC_PUSHDIRTY|UBC_SYNC);
 			nlock_9p(np, NODE_LCK_EXCLUSIVE);
@@ -579,14 +586,13 @@ vnop_setattr_9p(struct vnop_setattr_args *ap)
 	nlock_9p(np, NODE_LCK_EXCLUSIVE);
 	e = 0;
 	if (valid) {
-		if (ISSET(valid, SA_SIZE) && ubc_getsize(vp) > (off_t)size)
-			ubc_sync_range(vp, size, ubc_getsize(vp), UBC_INVALIDATE);
+		/* drop pages past the new EOF before the host truncates */
+		if (ISSET(valid, SA_SIZE))
+			ubc_setsize(vp, size);
 		e = setattr_9p(np->nmp, np->fid, valid, mode, size, at, mt);
 		np->attrtime = 0;
-		if (e == 0 && ISSET(valid, SA_SIZE)) {
+		if (e == 0 && ISSET(valid, SA_SIZE))
 			np->attr.size = size;
-			ubc_setsize(vp, size);
-		}
 	}
 	nunlock_9p(np);
 	if (e)
@@ -1126,6 +1132,8 @@ vnop_strategy_9p(struct vnop_strategy_args *ap)
 	node_9p *np;
 	caddr_t addr;
 	uio_t uio;
+	off_t off, eof;
+	uint32_t count;
 	int e, flags;
 
 	bp = ap->a_bp;
@@ -1142,7 +1150,17 @@ vnop_strategy_9p(struct vnop_strategy_args *ap)
 		e = ENOMEM;
 		goto out;
 	}
-	uio_addiov(uio, CAST_USER_ADDR_T(addr), buf_count(bp));
+	count = buf_count(bp);
+	if (!ISSET(flags, B_READ)) {
+		/* the last page is only partly file */
+		eof = ubc_getsize(buf_vnode(bp));
+		off = (off_t)buf_blkno(bp) * PAGE_SIZE;
+		if (off >= eof)
+			count = 0;
+		else if (off + count > eof)
+			count = eof - off;
+	}
+	uio_addiov(uio, CAST_USER_ADDR_T(addr), count);
 	if (ISSET(flags, B_READ)) {
 		if ((e = nread_9p(np, uio)))
 			goto out;
@@ -1151,7 +1169,7 @@ vnop_strategy_9p(struct vnop_strategy_args *ap)
 			bzero(addr + buf_count(bp) - uio_resid(uio), uio_resid(uio));
 			uio_update(uio, uio_resid(uio));
 		}
-	} else
+	} else if (count)
 		e = nwrite_9p(np, uio);
 	buf_setresid(bp, uio_resid(uio));
 out:
