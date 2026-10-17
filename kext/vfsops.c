@@ -268,6 +268,9 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			VOL_CAP_FMT_SYMBOLICLINKS |
 			VOL_CAP_FMT_CASE_PRESERVING |
 			VOL_CAP_FMT_2TB_FILESIZE;
+		if (ISSET(nmp->flags, FLAG_VOLFS))
+			c->capabilities[VOL_CAPABILITIES_FORMAT] |=
+				VOL_CAP_FMT_PERSISTENTOBJECTIDS;
 		c->valid[VOL_CAPABILITIES_INTERFACES] =
 			VOL_CAP_INT_SEARCHFS |
 			VOL_CAP_INT_ATTRLIST |
