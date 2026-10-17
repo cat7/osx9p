@@ -122,6 +122,7 @@ enum {
 	NODE_RECL	= 1<<2,
 	NODE_WAITRECL	= 1<<3,
 	NODE_MMAPPED	= 1<<4,
+	NODE_RSRC	= 1<<5,	/* resource fork of node "data" */
 };
 
 typedef enum {
@@ -161,7 +162,16 @@ struct node_9p {
 	dirent_9p *dirents;
 	uint32_t ndirents;
 	struct lock_9p *locks;
+
+	node_9p *rsrc;		/* data node: its fork vnode */
+	node_9p *data;		/* fork node: its file */
+	uint8_t *rbuf;		/* fork node: the fork while in use */
+	uint64_t rlen, rcap;
+	uint8_t rloaded, rdirty;
 };
+
+#define ISRSRC(np)	ISSET((np)->flags, NODE_RSRC)
+#define XATTR_MAX	(16 << 20)
 
 enum {
 	F_UNMOUNTING	= 1<<8,
@@ -234,6 +244,22 @@ __private_extern__ void id_forget_9p(mount_9p*, uint32_t);
 __private_extern__ uint32_t id_parent_9p(mount_9p*, uint32_t);
 __private_extern__ int id_name_9p(mount_9p*, uint32_t, char*, int);
 __private_extern__ int id_vget_9p(mount_9p*, uint32_t, vnode_t*, vfs_context_t, int);
+
+/* rsrc.c */
+__private_extern__ int forkspec_9p(struct componentname*, int*);
+__private_extern__ int rsrc_vget_9p(node_9p*, vnode_t, vnode_t*);
+__private_extern__ void rsrc_sync_9p(node_9p*, int);
+__private_extern__ int rsrc_read_9p(node_9p*, uio_t);
+__private_extern__ int rsrc_write_9p(node_9p*, uio_t, int);
+__private_extern__ int rsrc_size_9p(node_9p*, uint64_t*);
+__private_extern__ int rsrc_truncate_9p(node_9p*, uint64_t);
+__private_extern__ int rsrc_flush_9p(node_9p*);
+__private_extern__ void rsrc_reclaim_9p(node_9p*);
+
+/* vnops.c, shared with rsrc.c */
+__private_extern__ int xread_9p(mount_9p*, fid_9p, uint8_t*, uint64_t, uint32_t);
+__private_extern__ int xset_9p(node_9p*, const char*, uint8_t*, uint64_t, uint32_t);
+__private_extern__ int (**vnode_op_9p)(void *);
 
 /* lock.c */
 __private_extern__ void lock_init_9p(void);

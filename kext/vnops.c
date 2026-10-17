@@ -3,12 +3,11 @@
 #include <sys/vnode_if.h>
 
 typedef int vnop_t(void *);
-static vnop_t **vnode_op_9p;
+__private_extern__ vnop_t **vnode_op_9p;
 static char fsname[MFSNAMELEN] = VFS9PNAME;
 
 enum {
 	ATTR_TIMEOUT_US	= 1000000,	/* host files change behind our back */
-	XATTR_MAX	= 16 << 20,
 	L_XATTR_CREATE	= 1,
 	L_XATTR_REPLACE	= 2,
 };
@@ -270,6 +269,26 @@ vnop_lookup_9p(struct vnop_lookup_args *ap)
 	nlock_9p(dnp, NODE_LCK_SHARED);
 	e = nwalkget_9p(dnp, cnp->cn_nameptr, cnp->cn_namelen, dvp, vpp, cnp, ap->a_context);
 	nunlock_9p(dnp);
+	if (e == 0 && !ISSET(cnp->cn_flags, ISLASTCN) && vnode_isreg(*vpp)) {
+		vnode_t rvp;
+		int rsrc, n;
+
+		/* "name/..namedfork/rsrc": 10.4 leaves fork paths to us */
+		n = forkspec_9p(cnp, &rsrc);
+		if (n) {
+			if (cnp->cn_nameiop != LOOKUP && cnp->cn_nameiop != CREATE) {
+				vnode_put(*vpp);
+				*vpp = NULL;
+				return EPERM;
+			}
+			cnp->cn_consume = n;
+			if (rsrc) {
+				e = rsrc_vget_9p(NTO9P(*vpp), dvp, &rvp);
+				vnode_put(*vpp);
+				*vpp = e ? NULL : rvp;
+			}
+		}
+	}
 	if (e == ENOENT && ISSET(cnp->cn_flags, ISLASTCN) &&
 	    (cnp->cn_nameiop == CREATE || cnp->cn_nameiop == RENAME))
 		e = EJUSTRETURN;
@@ -425,6 +444,8 @@ vnop_open_9p(struct vnop_open_args *ap)
 
 	vp = ap->a_vp;
 	np = NTO9P(vp);
+	if (ISRSRC(np))
+		return 0;
 	slot = ofidslot(ap->a_mode);
 	switch (slot) {
 	case OFID_RDWR:	flags = L_O_RDWR; break;
@@ -480,6 +501,8 @@ vnop_close_9p(struct vnop_close_args *ap)
 
 	vp = ap->a_vp;
 	np = NTO9P(vp);
+	if (ISRSRC(np))
+		return rsrc_flush_9p(np);
 	slot = ofidslot(ap->a_fflag);
 
 	nlock_9p(np, NODE_LCK_EXCLUSIVE);
@@ -516,11 +539,15 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 	node_9p *np;
 	mount_9p *nmp;
 	static const struct timespec nobackup;
+	uint64_t rsize;
 	int e;
 
 	np = NTO9P(ap->a_vp);
 	nmp = np->nmp;
 	vap = ap->a_vap;
+	rsize = 0;
+	if (ISRSRC(np) && (e = rsrc_size_9p(np, &rsize)))
+		return e;
 
 	nlock_9p(np, NODE_LCK_EXCLUSIVE);
 	if ((e = ngetattr_9p(np, 0)))
@@ -531,10 +558,17 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 	VATTR_RETURN(vap, va_uid, nmp->uid);
 	VATTR_RETURN(vap, va_gid, nmp->gid);
 	VATTR_RETURN(vap, va_rdev, 0);
-	VATTR_RETURN(vap, va_data_size, np->attr.size);
-	VATTR_RETURN(vap, va_total_size, np->attr.size);
-	VATTR_RETURN(vap, va_data_alloc, np->attr.blocks * 512);
-	VATTR_RETURN(vap, va_total_alloc, np->attr.blocks * 512);
+	if (ISRSRC(np)) {
+		VATTR_RETURN(vap, va_data_size, rsize);
+		VATTR_RETURN(vap, va_total_size, rsize);
+		VATTR_RETURN(vap, va_data_alloc, rsize);
+		VATTR_RETURN(vap, va_total_alloc, rsize);
+	} else {
+		VATTR_RETURN(vap, va_data_size, np->attr.size);
+		VATTR_RETURN(vap, va_total_size, np->attr.size);
+		VATTR_RETURN(vap, va_data_alloc, np->attr.blocks * 512);
+		VATTR_RETURN(vap, va_total_alloc, np->attr.blocks * 512);
+	}
 	VATTR_RETURN(vap, va_iosize, iosize_9p(nmp));
 	VATTR_RETURN(vap, va_flags, 0);
 	VATTR_RETURN(vap, va_access_time, np->attr.atime);
@@ -577,6 +611,14 @@ vnop_setattr_9p(struct vnop_setattr_args *ap)
 	np = NTO9P(vp);
 	if (vnode_vfsisrdonly(vp))
 		return EROFS;
+	if (ISRSRC(np)) {
+		/* only the fork length is the fork's own */
+		if (VATTR_IS_ACTIVE(vap, va_data_size) &&
+		    (e = rsrc_truncate_9p(np, vap->va_data_size)))
+			return e;
+		vap->va_supported |= vap->va_active;
+		return 0;
+	}
 
 	valid = 0;
 	mode = 0;
@@ -712,6 +754,8 @@ vnop_read_9p(struct vnop_read_args *ap)
 	vp = ap->a_vp;
 	uio = ap->a_uio;
 	np = NTO9P(vp);
+	if (ISRSRC(np))
+		return rsrc_read_9p(np, uio);
 	if (vnode_isdir(vp))
 		return EISDIR;
 	if (uio_offset(uio) < 0)
@@ -742,6 +786,8 @@ vnop_write_9p(struct vnop_write_args *ap)
 	vp = ap->a_vp;
 	uio = ap->a_uio;
 	np = NTO9P(vp);
+	if (ISRSRC(np))
+		return rsrc_write_9p(np, uio, ap->a_ioflag);
 	if (vnode_isdir(vp))
 		return EISDIR;
 	if (uio_offset(uio) < 0)
@@ -810,6 +856,8 @@ vnop_mmap_9p(struct vnop_mmap_args *ap)
 	node_9p *np;
 
 	np = NTO9P(ap->a_vp);
+	if (ISRSRC(np))
+		return ENOTSUP;
 	nlock_9p(np, NODE_LCK_EXCLUSIVE);
 	SET(np->flags, NODE_MMAPPED);
 	nunlock_9p(np);
@@ -840,6 +888,8 @@ vnop_fsync_9p(struct vnop_fsync_args *ap)
 	if (!vnode_isreg(vp))
 		return 0;
 	np = NTO9P(vp);
+	if (ISRSRC(np))
+		return rsrc_flush_9p(np);
 	ubc_sync_range(vp, 0, ubc_getsize(vp), UBC_PUSHDIRTY|UBC_SYNC);
 	nlock_9p(np, NODE_LCK_SHARED);
 	e = 0;
@@ -1040,8 +1090,13 @@ vnop_reclaim_9p(struct vnop_reclaim_args *ap)
 
 	lck_mtx_lock(nmp->nodelck);
 	SET(np->flags, NODE_RECL);
-	LIST_REMOVE(np, next);
+	if (!ISRSRC(np))
+		LIST_REMOVE(np, next);
+	if (np->rsrc)
+		np->rsrc->data = NULL;
 	lck_mtx_unlock(nmp->nodelck);
+	if (ISRSRC(np))
+		rsrc_reclaim_9p(np);
 
 	vnode_removefsref(vp);
 	vnode_clearfsnode(vp);
@@ -1220,7 +1275,7 @@ isrsrc(const char *name)
 }
 
 /* read the whole xattr fid into buf (len bytes) */
-static int
+__private_extern__ int
 xread_9p(mount_9p *nmp, fid_9p fid, uint8_t *buf, uint64_t off, uint32_t len)
 {
 	uint32_t n;
@@ -1253,6 +1308,10 @@ vnop_getxattr_9p(struct vnop_getxattr_args *ap)
 	np = NTO9P(ap->a_vp);
 	nmp = np->nmp;
 	uio = ap->a_uio;
+	if (ISRSRC(np))
+		return ENOTSUP;
+	if (isrsrc(ap->a_name))
+		rsrc_sync_9p(np, 0);
 
 	nlock_9p(np, NODE_LCK_SHARED);
 	e = xattrwalk_9p(nmp, np->fid, ap->a_name, &fid, &size);
@@ -1288,7 +1347,7 @@ out:
 }
 
 /* replace the value of name with buf[0..len) */
-static int
+__private_extern__ int
 xset_9p(node_9p *np, const char *name, uint8_t *buf, uint64_t len, uint32_t flags)
 {
 	mount_9p *nmp;
@@ -1330,6 +1389,10 @@ vnop_setxattr_9p(struct vnop_setxattr_args *ap)
 	np = NTO9P(ap->a_vp);
 	nmp = np->nmp;
 	uio = ap->a_uio;
+	if (ISRSRC(np))
+		return ENOTSUP;
+	if (isrsrc(ap->a_name))
+		rsrc_sync_9p(np, 1);
 	if (vnode_vfsisrdonly(ap->a_vp))
 		return EROFS;
 
@@ -1387,8 +1450,12 @@ vnop_removexattr_9p(struct vnop_removexattr_args *ap)
 	int e;
 
 	np = NTO9P(ap->a_vp);
+	if (ISRSRC(np))
+		return ENOTSUP;
 	if (vnode_vfsisrdonly(ap->a_vp))
 		return EROFS;
+	if (isrsrc(ap->a_name))
+		rsrc_sync_9p(np, 1);
 	nlock_9p(np, NODE_LCK_EXCLUSIVE);
 	e = xset_9p(np, ap->a_name, NULL, 0, 0);
 	nunlock_9p(np);
@@ -1407,6 +1474,9 @@ vnop_listxattr_9p(struct vnop_listxattr_args *ap)
 
 	np = NTO9P(ap->a_vp);
 	nmp = np->nmp;
+	if (ISRSRC(np))
+		return ENOTSUP;
+	rsrc_sync_9p(np, 0);
 	nlock_9p(np, NODE_LCK_SHARED);
 	e = xattrwalk_9p(nmp, np->fid, "", &fid, &size);
 	nunlock_9p(np);
