@@ -202,6 +202,7 @@ errno_9p(uint32_t e)
 		{ 40, ELOOP },		{ 61, ENOATTR },	{ 75, EOVERFLOW },
 		{ 84, EILSEQ },		{ 95, ENOTSUP },	{ 110, ETIMEDOUT },
 		{ 116, ESTALE },	{ 122, EDQUOT },
+		{ 93, ENOATTR },	{ 96, ENOATTR },	/* untranslated Darwin host ENOATTR, ENODATA */
 	};
 	unsigned int i;
 
