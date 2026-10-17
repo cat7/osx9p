@@ -1,5 +1,9 @@
 #include "9p.h"
 
+#ifndef VOL_CAP_INT_EXTENDED_ATTR
+#define VOL_CAP_INT_EXTENDED_ATTR	0x00004000
+#endif
+
 lck_grp_t *lck_grp_9p;
 
 __private_extern__ void*
@@ -232,9 +236,11 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			VOL_CAP_INT_ADVLOCK |
 			VOL_CAP_INT_FLOCK |
 			VOL_CAP_INT_EXTENDED_SECURITY |
-			VOL_CAP_INT_USERACCESS;
+			VOL_CAP_INT_USERACCESS |
+			VOL_CAP_INT_EXTENDED_ATTR;
 		c->capabilities[VOL_CAPABILITIES_INTERFACES] =
-			VOL_CAP_INT_ATTRLIST;
+			VOL_CAP_INT_ATTRLIST |
+			VOL_CAP_INT_EXTENDED_ATTR;
 		c->valid[VOL_CAPABILITIES_RESERVED1] = 0;
 		c->valid[VOL_CAPABILITIES_RESERVED2] = 0;
 		c->capabilities[VOL_CAPABILITIES_RESERVED1] = 0;
