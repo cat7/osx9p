@@ -2,7 +2,8 @@
  * mount_9p [-o options] tag dir
  * Mounts the virtio-9p share with mount tag "tag" on dir.
  * Options: volume=NAME (name shown in the Finder), rdonly, nobrowse,
- * chatty (log 9P traffic to the system log).
+ * noowners (every user owns every file), chatty (log 9P traffic to the
+ * system log).
  */
 #include <sys/param.h>
 #include <sys/mount.h>
@@ -17,7 +18,7 @@
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,chatty] tag dir\n");
+	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,noowners,chatty] tag dir\n");
 	exit(EX_USAGE);
 }
 
@@ -37,8 +38,10 @@ options(char *s, args_9p *a, int *mntflags)
 			*mntflags |= MNT_DONTBROWSE;
 		else if (strcmp(o, "chatty") == 0)
 			a->flags |= FLAG_CHATTY9P;
+		else if (strcmp(o, "noowners") == 0)
+			*mntflags |= MNT_IGNORE_OWNERSHIP;
 		else if (strcmp(o, "rw") == 0 || strcmp(o, "nodev") == 0 ||
-			 strcmp(o, "nosuid") == 0 || strcmp(o, "noowners") == 0)
+			 strcmp(o, "nosuid") == 0)
 			continue;
 		else
 			errx(EX_USAGE, "unknown option %s", o);
