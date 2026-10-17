@@ -8,7 +8,7 @@
  */
 #include <sys/param.h>
 #include <sys/mount.h>
-#include <sys/sysctl.h>
+#include <sys/utsname.h>
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,13 +60,11 @@ options(char *s, args_9p *a, int *mntflags)
 static int
 darwin8(void)
 {
-	char rel[32];
-	size_t n;
+	struct utsname u;
 
-	n = sizeof(rel);
-	if (sysctlbyname("kern.osrelease", rel, &n, NULL, 0) < 0)
+	if (uname(&u) < 0)
 		return 0;
-	return strncmp(rel, "8.", 2) == 0;
+	return strncmp(u.release, "8.", 2) == 0;
 }
 
 int
