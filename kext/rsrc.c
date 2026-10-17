@@ -65,6 +65,7 @@ rload(node_9p *rp)
 	if (e == ENOATTR) {
 		fid = NOFID;
 		size = 0;
+		e = 0;
 	} else if (e)
 		return e;
 	if (size > XATTR_MAX) {
