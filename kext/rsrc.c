@@ -158,6 +158,9 @@ rflush(node_9p *rp)
 			e = 0;
 	} else
 		e = xset_9p(rp, RSRC, rp->rbuf, rp->rlen, 0);
+	/* the file was deleted; its fork goes with it */
+	if (e == ENOENT)
+		e = 0;
 	if (e == 0)
 		rp->rdirty = 0;
 	return e;
