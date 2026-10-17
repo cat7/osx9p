@@ -9,8 +9,11 @@
 #define TAGLEN		64
 #define VOLNAMELEN	256
 
-/* mount(2) data */
+/* mount(2) data; a local-volume fs gets it past the device path pointer */
 typedef struct {
+#ifndef KERNEL
+	char *fspec;
+#endif
 	char tag[TAGLEN];
 	char volume[VOLNAMELEN];
 	uint32_t flags;
