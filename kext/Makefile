@@ -13,7 +13,7 @@ CXXFLAGS = $(FLAGS) -fno-rtti -fno-exceptions -fcheck-new -fapple-kext
 LDFLAGS	= $(ARCH) -isysroot $(SDK) -mmacosx-version-min=10.4 -nostdlib \
 	  -static -r -lkmodc++ -lkmod -lcc_kext
 
-OBJS	= kmod.o vfsops.o vnops.o proto.o lock.o virtio9p.o
+OBJS	= kmod.o vfsops.o vnops.o proto.o lock.o ids.o virtio9p.o
 HDRS	= 9p.h virtio9p.h
 KEXT	= osx9p.kext
 

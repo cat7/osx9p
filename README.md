@@ -38,8 +38,8 @@ on 10.5.
 
 - Advisory locks (`flock`, `fcntl`) hold between guest processes only;
   the host does not see them.
-- On 10.4, Carbon and the Finder store type/creator and resource forks in
-  `._` files; `cp` and other BSD tools use the native attributes.
+- File IDs (needed by Carbon on 10.4) are kept in memory: a file that has
+  not been seen since the mount cannot be found by ID alone.
 
 ## License
 

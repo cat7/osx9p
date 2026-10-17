@@ -3,10 +3,12 @@
  * Mounts the virtio-9p share with mount tag "tag" on dir.
  * Options: volume=NAME (name shown in the Finder), rdonly, nobrowse,
  * owners (show host ownership; by default every user owns every file),
- * chatty (log 9P traffic to the system log).
+ * chatty (log 9P traffic to the system log), volfs/novolfs (file IDs for
+ * Carbon; on by default on 10.4, where Carbon needs them).
  */
 #include <sys/param.h>
 #include <sys/mount.h>
+#include <sys/sysctl.h>
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +20,7 @@
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,owners,chatty] tag dir\n");
+	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,owners,[no]volfs,chatty] tag dir\n");
 	exit(EX_USAGE);
 }
 
@@ -38,6 +40,10 @@ options(char *s, args_9p *a, int *mntflags)
 			*mntflags |= MNT_DONTBROWSE;
 		else if (strcmp(o, "chatty") == 0)
 			a->flags |= FLAG_CHATTY9P;
+		else if (strcmp(o, "volfs") == 0)
+			a->flags |= FLAG_VOLFS;
+		else if (strcmp(o, "novolfs") == 0)
+			a->flags &= ~FLAG_VOLFS;
 		else if (strcmp(o, "noowners") == 0)
 			*mntflags |= MNT_IGNORE_OWNERSHIP;
 		else if (strcmp(o, "owners") == 0)
@@ -50,6 +56,19 @@ options(char *s, args_9p *a, int *mntflags)
 	}
 }
 
+/* Mac OS X 10.4 */
+static int
+darwin8(void)
+{
+	char rel[32];
+	size_t n;
+
+	n = sizeof(rel);
+	if (sysctlbyname("kern.osrelease", rel, &n, NULL, 0) < 0)
+		return 0;
+	return strncmp(rel, "8.", 2) == 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -59,6 +78,8 @@ main(int argc, char **argv)
 
 	memset(&a, 0, sizeof(a));
 	mntflags = MNT_NODEV | MNT_NOSUID | MNT_IGNORE_OWNERSHIP;
+	if (darwin8())
+		a.flags |= FLAG_VOLFS;
 	while ((c = getopt(argc, argv, "o:")) != -1) {
 		switch (c) {
 		case 'o':

@@ -145,6 +145,7 @@ loop:
 	np->nmp = nmp;
 	np->fid = fid;
 	np->qid = qid;
+	np->id = id_get_9p(nmp, qid.path);
 	for (i = 0; i < NOFIDS; i++)
 		np->openfid[i].fid = NOFID;
 	SET(np->flags, NODE_INIT);
@@ -216,8 +217,11 @@ nwalkget_9p(node_9p *dnp, char *name, int nname, vnode_t dvp, vnode_t *vpp,
 	e = nget_9p(nmp, fid, qid, dvp, vpp, cnp, ctx);
 	if (e || NTO9P(*vpp)->fid != fid)
 		clunk_9p(nmp, fid);
-	if (e == 0)
+	if (e == 0) {
+		if (!(nname == 2 && name[0] == '.' && name[1] == '.'))
+			id_link_9p(nmp, NTO9P(*vpp)->id, dnp->id, name, nname);
 		nunlock_9p(NTO9P(*vpp));
+	}
 	return e;
 }
 
@@ -532,8 +536,9 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 		VATTR_RETURN(vap, va_create_time, np->attr.btime);
 	else
 		VATTR_RETURN(vap, va_create_time, np->attr.mtime);
-	VATTR_RETURN(vap, va_fileid, QTOI(np->qid));
-	VATTR_RETURN(vap, va_linkid, QTOI(np->qid));
+	VATTR_RETURN(vap, va_fileid, np->id);
+	VATTR_RETURN(vap, va_linkid, np->id);
+	VATTR_RETURN(vap, va_parentid, id_parent_9p(nmp, np->id));
 	VATTR_RETURN(vap, va_fsid, vfs_statfs(nmp->mp)->f_fsid.val[0]);
 	VATTR_RETURN(vap, va_filerev, np->qid.vers);
 	VATTR_RETURN(vap, va_gen, 0);
@@ -850,6 +855,7 @@ nremove_9p(vnode_t dvp, vnode_t vp, struct componentname *cnp, uint32_t flags)
 	dnp->attrtime = 0;
 	nunlock_9p(dnp);
 	if (e == 0) {
+		id_forget_9p(dnp->nmp, NTO9P(vp)->id);
 		cache_purge(vp);
 		vnode_recycle(vp);
 	}
@@ -886,6 +892,10 @@ vnop_rename_9p(struct vnop_rename_args *ap)
 		return e;
 	fdnp->attrtime = 0;
 	tdnp->attrtime = 0;
+	if (ap->a_tvp)
+		id_forget_9p(tdnp->nmp, NTO9P(ap->a_tvp)->id);
+	id_link_9p(tdnp->nmp, NTO9P(ap->a_fvp)->id, tdnp->id,
+		   ap->a_tcnp->cn_nameptr, ap->a_tcnp->cn_namelen);
 	cache_purge(ap->a_fvp);
 	cache_purge(ap->a_fdvp);
 	if (ap->a_tvp) {
@@ -958,12 +968,13 @@ vnop_readdir_9p(struct vnop_readdir_args *ap)
 	nd = np->ndirents;
 	for (i = off; i < nd; i++) {
 		bzero(&de, sizeof(de));
-		de.d_fileno = (ino_t)QTOI(dp[i].qid);
+		de.d_fileno = id_get_9p(np->nmp, dp[i].qid.path);
 		de.d_type = dp[i].type;
 		nlen = strlen(dp[i].name);
 		de.d_namlen = MIN(nlen, sizeof(de.d_name) - 1);
 		bcopy(dp[i].name, de.d_name, de.d_namlen);
 		de.d_reclen = DIRENT32_LEN(de.d_namlen);
+		id_link_9p(np->nmp, de.d_fileno, np->id, de.d_name, de.d_namlen);
 		if (uio_resid(uio) < de.d_reclen)
 			break;
 		if ((e = uiomove((caddr_t)&de, de.d_reclen, uio)))

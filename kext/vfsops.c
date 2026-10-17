@@ -42,6 +42,7 @@ freemount_9p(mount_9p *nmp)
 		return;
 	if (nmp->chan)
 		v9p_chan_close(nmp->chan);
+	ids_fini_9p(nmp);
 	if (nmp->node)
 		FREE(nmp->node, M_TEMP);
 	if (nmp->lck)
@@ -109,6 +110,8 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 		goto error;
 	if ((e = attach_9p(nmp, &fid, &qid)))
 		goto error;
+	if ((e = ids_init_9p(nmp, qid.path)))
+		goto error;
 	if ((e = nget_9p(nmp, fid, qid, NULL, &nmp->root, NULL, ctx)))
 		goto error;
 	fid = NOFID;	/* owned by the root node now */
@@ -119,6 +122,8 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 	if (e)
 		goto error;
 
+	if (ISSET(nmp->flags, FLAG_VOLFS))
+		vfs_setflags(mp, MNT_DOVOLFS);
 	vfs_setauthopaque(mp);
 	vfs_clearauthopaqueaccess(mp);
 
@@ -323,18 +328,10 @@ vfs_sync_9p(mount_t mp, int waitfor, vfs_context_t ctx)
 static int
 vfs_vget_9p(mount_t mp, ino64_t ino, vnode_t *vpp, vfs_context_t ctx)
 {
-	qid_9p qid;
-	vnode_t vp;
-	int e;
-
-	bzero(&qid, sizeof(qid));
-	qid.path = ino;
 	*vpp = NULL;
-	if ((e = nget_9p(MTO9P(mp), NOFID, qid, NULL, &vp, NULL, ctx)))
-		return e;
-	nunlock_9p(NTO9P(vp));
-	*vpp = vp;
-	return 0;
+	if (ino > 0xFFFFFFFFULL)
+		return ENOENT;
+	return id_vget_9p(MTO9P(mp), (uint32_t)ino, vpp, ctx, 0);
 }
 
 static struct vfsops vfsops_9p = {

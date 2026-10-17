@@ -21,6 +21,7 @@ typedef struct {
 
 enum {
 	FLAG_CHATTY9P	= 1<<0,
+	FLAG_VOLFS	= 1<<1,	/* file IDs for volfs (Carbon on 10.4) */
 };
 
 #ifdef KERNEL
@@ -153,6 +154,7 @@ struct node_9p {
 	uint32_t iounit;
 	fid_9p fid;
 	qid_9p qid;
+	uint32_t id;
 	attr_9p attr;
 	uint64_t attrtime;
 	openfid_9p openfid[NOFIDS];
@@ -183,6 +185,8 @@ struct mount_9p {
 	LIST_HEAD(hnode_9p, node_9p) *node;
 	u_long nodelen;
 	lck_mtx_t *nodelck;
+
+	struct idtab_9p *ids;
 };
 
 /* proto.c */
@@ -220,6 +224,15 @@ __private_extern__ struct vnodeopv_desc vnodeopv_desc_9p;
 
 __private_extern__ lck_grp_t *lck_grp_9p;
 
+/* ids.c */
+__private_extern__ int ids_init_9p(mount_9p*, uint64_t);
+__private_extern__ void ids_fini_9p(mount_9p*);
+__private_extern__ uint32_t id_get_9p(mount_9p*, uint64_t);
+__private_extern__ void id_link_9p(mount_9p*, uint32_t, uint32_t, const char*, int);
+__private_extern__ void id_forget_9p(mount_9p*, uint32_t);
+__private_extern__ uint32_t id_parent_9p(mount_9p*, uint32_t);
+__private_extern__ int id_vget_9p(mount_9p*, uint32_t, vnode_t*, vfs_context_t, int);
+
 /* lock.c */
 __private_extern__ void lock_init_9p(void);
 __private_extern__ void lock_fini_9p(void);
@@ -232,7 +245,6 @@ void v9p_transport_fini(void);
 
 #define MTO9P(m)	((mount_9p*)vfs_fsprivate(m))
 #define NTO9P(vp)	((node_9p*)vnode_fsnode(vp))
-#define QTOI(q)		((q).path)
 
 #ifdef DEBUG9P
 #define DEBUG(f, a...)	printf("9p: %s: " f "\n", __FUNCTION__, ## a)
