@@ -407,9 +407,11 @@ osx9p_start(kmod_info_t *ki, void *d)
 	(void)d;
 	lck_grp_9p = lck_grp_alloc_init(VFS9PNAME, LCK_GRP_ATTR_NULL);
 	lock_init_9p();
+	rsrc_init_9p();
 	v9p_transport_init();
 	if (vfs_fsadd(&vfs_fsentry_9p, &vfstable_9p)) {
 		v9p_transport_fini();
+		rsrc_fini_9p();
 		lock_fini_9p();
 		lck_grp_free(lck_grp_9p);
 		return KERN_FAILURE;
@@ -426,6 +428,7 @@ osx9p_stop(kmod_info_t *ki, void *d)
 		return KERN_FAILURE;
 	vfstable_9p = NULL;
 	v9p_transport_fini();
+	rsrc_fini_9p();
 	lock_fini_9p();
 	lck_grp_free(lck_grp_9p);
 	return KERN_SUCCESS;

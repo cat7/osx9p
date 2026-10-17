@@ -246,6 +246,8 @@ __private_extern__ int id_name_9p(mount_9p*, uint32_t, char*, int);
 __private_extern__ int id_vget_9p(mount_9p*, uint32_t, vnode_t*, vfs_context_t, int);
 
 /* rsrc.c */
+__private_extern__ void rsrc_init_9p(void);
+__private_extern__ void rsrc_fini_9p(void);
 __private_extern__ int forkspec_9p(struct componentname*, int*);
 __private_extern__ int rsrc_vget_9p(node_9p*, vnode_t, vnode_t*);
 __private_extern__ void rsrc_sync_9p(node_9p*, int);

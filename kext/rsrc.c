@@ -6,8 +6,37 @@
  * on close and fsync.
  */
 #include "9p.h"
+#include <libkern/OSMalloc.h>
 
 #define RSRC	XATTR_RESOURCEFORK_NAME
+
+/* forks run to megabytes: pageable kernel_map memory, not kalloc */
+static OSMallocTag rtag;
+
+__private_extern__ void
+rsrc_init_9p(void)
+{
+	rtag = OSMalloc_Tagalloc(VFS9PNAME ".rsrc", OSMT_PAGEABLE);
+}
+
+__private_extern__ void
+rsrc_fini_9p(void)
+{
+	OSMalloc_Tagfree(rtag);
+}
+
+static uint8_t *
+ralloc(uint64_t n)
+{
+	return OSMalloc((uint32_t)(n ? n : 1), rtag);
+}
+
+static void
+rfree(uint8_t *b, uint64_t n)
+{
+	if (b)
+		OSFree(b, (uint32_t)(n ? n : 1), rtag);
+}
 
 static const char rsrcspec[] = "/..namedfork/rsrc";
 static const char dataspec[] = "/..namedfork/data";
@@ -72,7 +101,7 @@ rload(node_9p *rp)
 		clunk_9p(rp->nmp, fid);
 		return EFBIG;
 	}
-	b = malloc_9p(size ? size : 1);
+	b = ralloc(size);
 	if (b == NULL)
 		e = ENOMEM;
 	else if (size)
@@ -80,7 +109,7 @@ rload(node_9p *rp)
 	if (fid != NOFID)
 		clunk_9p(rp->nmp, fid);
 	if (e) {
-		free_9p(b);
+		rfree(b, size);
 		return e;
 	}
 	rp->rbuf = b;
@@ -101,11 +130,11 @@ rresize(node_9p *rp, uint64_t len)
 	if (len > rp->rcap) {
 		cap = MAX(len, MIN(rp->rcap * 2, (uint64_t)XATTR_MAX));
 		cap = MAX(cap, 4096);
-		b = malloc_9p(cap);
+		b = ralloc(cap);
 		if (b == NULL)
 			return ENOMEM;
 		bcopy(rp->rbuf, b, rp->rlen);
-		free_9p(rp->rbuf);
+		rfree(rp->rbuf, rp->rcap);
 		rp->rbuf = b;
 		rp->rcap = cap;
 	}
@@ -137,7 +166,7 @@ rflush(node_9p *rp)
 static void
 rdrop(node_9p *rp)
 {
-	free_9p(rp->rbuf);
+	rfree(rp->rbuf, rp->rcap);
 	rp->rbuf = NULL;
 	rp->rlen = rp->rcap = 0;
 	rp->rloaded = 0;
