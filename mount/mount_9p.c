@@ -2,8 +2,8 @@
  * mount_9p [-o options] tag dir
  * Mounts the virtio-9p share with mount tag "tag" on dir.
  * Options: volume=NAME (name shown in the Finder), rdonly, nobrowse,
- * noowners (every user owns every file), chatty (log 9P traffic to the
- * system log).
+ * owners (show host ownership; by default every user owns every file),
+ * chatty (log 9P traffic to the system log).
  */
 #include <sys/param.h>
 #include <sys/mount.h>
@@ -18,7 +18,7 @@
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,noowners,chatty] tag dir\n");
+	fprintf(stderr, "usage: mount_9p [-o volume=NAME,rdonly,nobrowse,owners,chatty] tag dir\n");
 	exit(EX_USAGE);
 }
 
@@ -40,6 +40,8 @@ options(char *s, args_9p *a, int *mntflags)
 			a->flags |= FLAG_CHATTY9P;
 		else if (strcmp(o, "noowners") == 0)
 			*mntflags |= MNT_IGNORE_OWNERSHIP;
+		else if (strcmp(o, "owners") == 0)
+			*mntflags &= ~MNT_IGNORE_OWNERSHIP;
 		else if (strcmp(o, "rw") == 0 || strcmp(o, "nodev") == 0 ||
 			 strcmp(o, "nosuid") == 0)
 			continue;
@@ -56,7 +58,7 @@ main(int argc, char **argv)
 	int c, mntflags;
 
 	memset(&a, 0, sizeof(a));
-	mntflags = MNT_NODEV | MNT_NOSUID;
+	mntflags = MNT_NODEV | MNT_NOSUID | MNT_IGNORE_OWNERSHIP;
 	while ((c = getopt(argc, argv, "o:")) != -1) {
 		switch (c) {
 		case 'o':
