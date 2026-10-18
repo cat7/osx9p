@@ -1472,6 +1472,33 @@ vnop_removexattr_9p(struct vnop_removexattr_args *ap)
 	return e;
 }
 
+/* servers name the Apple attributes user.com.apple.*; drop the prefix */
+static uint64_t
+xnames_9p(uint8_t *buf, uint64_t size)
+{
+	static const char pfx[] = "user.";
+	uint64_t i, o, n;
+	char *p;
+
+	for (i = o = 0; i < size; i += n + 1) {
+		p = (char *)buf + i;
+		for (n = 0; i + n < size && p[n]; n++)
+			;
+		if (i + n >= size)
+			break;
+		if (strncmp(p, pfx, sizeof(pfx) - 1) == 0 &&
+		    (strcmp(p + sizeof(pfx) - 1, XATTR_FINDERINFO_NAME) == 0 ||
+		    strcmp(p + sizeof(pfx) - 1, XATTR_RESOURCEFORK_NAME) == 0)) {
+			memmove(buf + o, p + sizeof(pfx) - 1, n - (sizeof(pfx) - 1) + 1);
+			o += n - (sizeof(pfx) - 1) + 1;
+		} else {
+			memmove(buf + o, p, n + 1);
+			o += n + 1;
+		}
+	}
+	return o;
+}
+
 static int
 vnop_listxattr_9p(struct vnop_listxattr_args *ap)
 {
@@ -1492,21 +1519,25 @@ vnop_listxattr_9p(struct vnop_listxattr_args *ap)
 	nunlock_9p(np);
 	if (e)
 		return e;
-	if (ap->a_uio == NULL) {
-		*ap->a_size = size;
-	} else if ((uint64_t)uio_resid(ap->a_uio) < size) {
-		e = ERANGE;
-	} else if (size) {
+	buf = NULL;
+	if (size) {
 		buf = malloc_9p(size);
 		if (buf == NULL)
 			e = ENOMEM;
-		else {
-			if ((e = xread_9p(nmp, fid, buf, 0, size)) == 0)
-				e = uiomove((caddr_t)buf, size, ap->a_uio);
-			free_9p(buf);
-		}
+		else if ((e = xread_9p(nmp, fid, buf, 0, size)) == 0)
+			size = xnames_9p(buf, size);
 	}
 	clunk_9p(nmp, fid);
+	if (e == 0) {
+		if (ap->a_uio == NULL)
+			*ap->a_size = size;
+		else if ((uint64_t)uio_resid(ap->a_uio) < size)
+			e = ERANGE;
+		else if (size)
+			e = uiomove((caddr_t)buf, size, ap->a_uio);
+	}
+	if (buf)
+		free_9p(buf);
 	return e;
 }
 
