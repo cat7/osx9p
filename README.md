@@ -25,7 +25,19 @@ On Mac OS X 10.4 with Xcode 2.5 (10.4u SDK):
 This produces `kext/osx9p.kext` and `mount/mount_9p`. The same build loads
 on 10.5.
 
-## Use
+## Guest additions CD
+
+    make && sudo make cd
+
+builds `osx9p-<version>.iso`: an Installer package for 10.4 and 10.5, a
+ReadMe and an uninstaller. Attach it to the guest as a CD
+(`-drive file=osx9p-1.0.0.iso,media=cdrom`) and open `osx9p.pkg`. The
+package installs the driver, `/sbin/mount_9p` and a launchd job that
+mounts every share at `/Volumes/<mount tag>` at startup; the shares are
+mounted as soon as the installer finishes.
+
+## Use by hand
+
 
     sudo cp -R kext/osx9p.kext /tmp/ && sudo chown -R root:wheel /tmp/osx9p.kext
     sudo kextload /tmp/osx9p.kext

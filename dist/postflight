@@ -1,0 +1,6 @@
+#!/bin/sh
+# Load the driver and mount the shares now; launchd mounts them at boot.
+touch "$3/System/Library/Extensions"
+kextload "$3/System/Library/Extensions/osx9p.kext" >/dev/null 2>&1
+launchctl load "$3/Library/LaunchDaemons/org.cat7.osx9p.automount.plist"
+exit 0

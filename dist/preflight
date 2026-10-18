@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stop an installed copy so its files can be replaced.
+LD="$3/Library/LaunchDaemons/org.cat7.osx9p.automount.plist"
+[ -f "$LD" ] && launchctl unload "$LD" 2>/dev/null
+mount -t 9p | sed -n 's/^.* on \(.*\) (.*$/\1/p' | while read -r d; do
+	umount "$d" 2>/dev/null || diskutil unmount "$d" >/dev/null 2>&1
+	rmdir "$d" 2>/dev/null
+done
+kextunload -b org.cat7.osx9p >/dev/null 2>&1
+rm -rf "$3/System/Library/Extensions/osx9p.kext"
+exit 0
