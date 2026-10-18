@@ -76,6 +76,7 @@ private:
 	bool mapRegion(Region *r, uint8_t bar, uint32_t off, uint32_t len);
 	bool setupQueue(void);
 	void reset(void);
+	void setIcon(void);
 	static bool filter(OSObject *owner, IOFilterInterruptEventSource *src);
 	static void handler(OSObject *owner, IOInterruptEventSource *src, int count);
 
@@ -243,6 +244,34 @@ org_cat7_virtio9p::setupQueue(void)
 	return true;
 }
 
+/*
+ * Carbon looks the volume's device up by BSD name (the part of
+ * f_mntfromname after the last '/') and takes its IOMediaIcon; without
+ * one, a local volume gets the folder icon.  Prefix as BSDNAME9P in 9p.h.
+ */
+void
+org_cat7_virtio9p::setIcon(void)
+{
+	char name[sizeof(fTag) + 3];
+	OSDictionary *d;
+	OSString *s;
+
+	snprintf(name, sizeof(name), "9p-%s", fTag);
+	setProperty("BSD Name", name);
+	if ((d = OSDictionary::withCapacity(2)) == NULL)
+		return;
+	if ((s = OSString::withCString("com.apple.iokit.IOStorageFamily"))) {
+		d->setObject("CFBundleIdentifier", s);
+		s->release();
+	}
+	if ((s = OSString::withCString("External.icns"))) {
+		d->setObject("IOBundleResourceFile", s);
+		s->release();
+	}
+	setProperty("IOMediaIcon", d);
+	d->release();
+}
+
 bool
 org_cat7_virtio9p::start(IOService *provider)
 {
@@ -351,6 +380,7 @@ org_cat7_virtio9p::start(IOService *provider)
 	w8(fCommon, CC_STATUS, ST_ACK | ST_DRIVER | ST_FEATURES_OK | ST_DRIVER_OK);
 
 	setProperty("mount-tag", fTag);
+	setIcon();
 	IOLockLock(gDevLock);
 	gDevices->setObject(this);
 	IOLockUnlock(gDevLock);

@@ -18,7 +18,7 @@ done
 
 tags | while read -r tag; do
 	[ -n "$tag" ] || continue
-	mount -t 9p | grep -q "^$tag on " && continue
+	mount -t 9p | grep -q "^virtio/9p-$tag on " && continue
 	dir="/Volumes/$tag"
 	n=1
 	while [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; do

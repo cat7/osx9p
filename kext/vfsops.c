@@ -167,7 +167,10 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 	vfs_clearauthopaqueaccess(mp);
 
 	sp = vfs_statfs(mp);
-	strlcpy_9p(sp->f_mntfromname, nmp->tag, MNAMELEN);
+	/* Carbon takes the part after the last '/' as the BSD name */
+	strlcpy_9p(sp->f_mntfromname, MNTFROM9P, MNAMELEN);
+	strlcpy_9p(sp->f_mntfromname + sizeof(MNTFROM9P) - 1, nmp->tag,
+	    MNAMELEN - sizeof(MNTFROM9P) + 1);
 	sp->f_bsize = PAGE_SIZE;
 	sp->f_iosize = iosize_9p(nmp);
 	return 0;

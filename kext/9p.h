@@ -7,6 +7,10 @@
 #define VERSION9P	"9P2000.L"
 
 #define TAGLEN		64
+
+/* the device's BSD name is this prefix and the tag; f_mntfromname ends in it */
+#define BSDNAME9P	"9p-"
+#define MNTFROM9P	"virtio/" BSDNAME9P
 #define VOLNAMELEN	256
 
 /* mount(2) data; a local-volume fs gets it past the device path pointer */
