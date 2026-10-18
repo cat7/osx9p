@@ -186,7 +186,8 @@ dmaAlloc(uint32_t size, uint64_t *pa, uint8_t **va)
 		md->release();
 		return NULL;
 	}
-	*pa = md->getPhysicalSegment(0, &seglen);
+	/* the device bypasses the DART: CPU physical, not mapped, addresses */
+	*pa = md->getPhysicalSegment64(0, &seglen);
 	if (*pa == 0 || seglen < size) {
 		md->complete();
 		md->release();
