@@ -9,6 +9,9 @@
 #include <sys/param.h>
 #include <sys/mount.h>
 #include <sys/utsname.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <DiskArbitration/DiskArbitration.h>
+#include <dlfcn.h>
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,17 +70,61 @@ darwin8(void)
 	return strncmp(u.release, "8.", 2) == 0;
 }
 
+/*
+ * diskarbitrationd on 10.4 knows a volume without a device only after a
+ * refresh; Carbon ejects every volume through it.  Without NoDefer it
+ * unmounts the volume when no one is logged in, as at startup.
+ * DiskManagement takes a local volume there for a device and hangs, so
+ * the volume is mounted non-local, refreshed, then updated to local.
+ */
+static void
+darefresh(const char *dir)
+{
+	void *(*sessioncreate)(CFAllocatorRef);
+	void *(*fromvolumepath)(CFAllocatorRef, void *, CFURLRef);
+	int (*refresh)(void *);
+	int (*setoptions)(void *, UInt32, Boolean);
+	void *h, *session, *disk;
+	CFURLRef url;
+
+	h = dlopen("/System/Library/Frameworks/DiskArbitration.framework/DiskArbitration", RTLD_LAZY);
+	if (h == NULL)
+		return;
+	sessioncreate = dlsym(h, "DASessionCreate");
+	fromvolumepath = dlsym(h, "DADiskCreateFromVolumePath");
+	refresh = dlsym(h, "_DADiskRefresh");
+	setoptions = dlsym(h, "DADiskSetOptions");
+	if (sessioncreate == NULL || fromvolumepath == NULL || refresh == NULL ||
+	    setoptions == NULL)
+		return;
+	session = sessioncreate(kCFAllocatorDefault);
+	if (session == NULL)
+		return;
+	url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault,
+	    (const UInt8 *)dir, strlen(dir), true);
+	if (url != NULL) {
+		disk = fromvolumepath(kCFAllocatorDefault, session, url);
+		if (disk != NULL) {
+			if (refresh(disk) == 0)
+				setoptions(disk, kDADiskOptionMountAutomaticNoDefer, true);
+			CFRelease(disk);
+		}
+		CFRelease(url);
+	}
+	CFRelease(session);
+}
+
 int
 main(int argc, char **argv)
 {
 	char dir[MAXPATHLEN];
 	args_9p a;
-	int c, mntflags;
+	int c, d8, mntflags;
 
 	memset(&a, 0, sizeof(a));
 	mntflags = MNT_NODEV | MNT_NOSUID | MNT_IGNORE_OWNERSHIP;
-	if (darwin8())
-		a.flags |= FLAG_VOLFS;
+	if ((d8 = darwin8()))
+		a.flags |= FLAG_VOLFS | FLAG_NOTLOCAL;
 	while ((c = getopt(argc, argv, "o:")) != -1) {
 		switch (c) {
 		case 'o':
@@ -98,5 +145,11 @@ main(int argc, char **argv)
 		err(EX_USAGE, "%s", argv[1]);
 	if (mount(VFS9PNAME, dir, mntflags, &a) < 0)
 		err(EX_OSERR, "%s on %s", a.tag, dir);
+	if (d8) {
+		darefresh(dir);
+		a.flags &= ~FLAG_NOTLOCAL;
+		if (mount(VFS9PNAME, dir, mntflags | MNT_UPDATE, &a) < 0)
+			warn("%s on %s", a.tag, dir);
+	}
 	return 0;
 }

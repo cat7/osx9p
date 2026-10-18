@@ -26,6 +26,7 @@ typedef struct {
 enum {
 	FLAG_CHATTY9P	= 1<<0,
 	FLAG_VOLFS	= 1<<1,	/* file IDs for volfs (Carbon on 10.4) */
+	FLAG_NOTLOCAL	= 1<<2,	/* clear MNT_LOCAL */
 };
 
 #ifdef KERNEL

@@ -102,10 +102,18 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 
 	(void)devvp;
 	fid = NOFID;
-	if (vfs_isupdate(mp))
-		return ENOTSUP;
 	if ((e = copyin(data, &args, sizeof(args))))
 		return e;
+	if (vfs_isupdate(mp)) {
+		/* an update only sets or clears MNT_LOCAL */
+		if (vfs_iswriteupgrade(mp))
+			return ENOTSUP;
+		if (ISSET(args.flags, FLAG_NOTLOCAL))
+			vfs_clearflags(mp, MNT_LOCAL);
+		else
+			vfs_setflags(mp, MNT_LOCAL);
+		return 0;
+	}
 	args.tag[TAGLEN-1] = 0;
 	args.volume[VOLNAMELEN-1] = 0;
 
@@ -163,6 +171,8 @@ vfs_mount_9p(mount_t mp, vnode_t devvp, user_addr_t data, vfs_context_t ctx)
 
 	if (ISSET(nmp->flags, FLAG_VOLFS))
 		vfs_setflags(mp, MNT_DOVOLFS);
+	if (ISSET(nmp->flags, FLAG_NOTLOCAL))
+		vfs_clearflags(mp, MNT_LOCAL);
 	vfs_setauthopaque(mp);
 	vfs_clearauthopaqueaccess(mp);
 
