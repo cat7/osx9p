@@ -229,7 +229,8 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 	struct vfsstatfs *sp;
 	fsstat_9p st;
 	mount_9p *nmp;
-	uint64_t scale;
+	uint64_t scale, objs;
+	static const struct timespec nobackup;
 
 	(void)ctx;
 	nmp = MTO9P(mp);
@@ -246,7 +247,33 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 		VFSATTR_RETURN(ap, f_bused, (st.blocks - st.bfree) * scale / sp->f_bsize);
 		VFSATTR_RETURN(ap, f_files, st.files);
 		VFSATTR_RETURN(ap, f_ffree, st.ffree);
+		objs = st.files > st.ffree ? st.files - st.ffree : 0;
+	} else
+		objs = 0;
+	if (objs > 0xFFFFFFFFULL)
+		objs = 0xFFFFFFFFULL;
+	/* Carbon fails the whole volume info call without these */
+	VFSATTR_RETURN(ap, f_objcount, objs);
+	VFSATTR_RETURN(ap, f_filecount, objs);
+	VFSATTR_RETURN(ap, f_dircount, 0);
+	VFSATTR_RETURN(ap, f_maxobjcount, 0xFFFFFFFFULL);
+	if (VFSATTR_IS_ACTIVE(ap, f_create_time) ||
+	    VFSATTR_IS_ACTIVE(ap, f_modify_time) ||
+	    VFSATTR_IS_ACTIVE(ap, f_access_time)) {
+		node_9p *np = NTO9P(nmp->root);
+
+		nlock_9p(np, NODE_LCK_EXCLUSIVE);
+		if (ngetattr_9p(np, 0) == 0) {
+			VFSATTR_RETURN(ap, f_modify_time, np->attr.mtime);
+			VFSATTR_RETURN(ap, f_access_time, np->attr.atime);
+			if (np->attr.btime.tv_sec)
+				VFSATTR_RETURN(ap, f_create_time, np->attr.btime);
+			else
+				VFSATTR_RETURN(ap, f_create_time, np->attr.mtime);
+		}
+		nunlock_9p(np);
 	}
+	VFSATTR_RETURN(ap, f_backup_time, nobackup);
 
 	if (VFSATTR_IS_ACTIVE(ap, f_capabilities)) {
 		vol_capabilities_attr_t *c = &ap->f_capabilities;
@@ -313,6 +340,7 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			ATTR_CMN_MODTIME |
 			ATTR_CMN_CHGTIME |
 			ATTR_CMN_ACCTIME |
+			ATTR_CMN_BKUPTIME |
 			ATTR_CMN_FNDRINFO |
 			ATTR_CMN_OWNERID |
 			ATTR_CMN_GRPID |
@@ -328,6 +356,10 @@ vfs_getattr_9p(mount_t mp, struct vfs_attr *ap, vfs_context_t ctx)
 			ATTR_VOL_MINALLOCATION |
 			ATTR_VOL_ALLOCATIONCLUMP |
 			ATTR_VOL_IOBLOCKSIZE |
+			ATTR_VOL_OBJCOUNT |
+			ATTR_VOL_FILECOUNT |
+			ATTR_VOL_DIRCOUNT |
+			ATTR_VOL_MAXOBJCOUNT |
 			ATTR_VOL_MOUNTPOINT |
 			ATTR_VOL_NAME |
 			ATTR_VOL_MOUNTFLAGS |
