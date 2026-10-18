@@ -532,6 +532,27 @@ vnop_close_9p(struct vnop_close_args *ap)
 	return 0;
 }
 
+/* entries in directory np, "." and ".." left out */
+static int
+nchildren_9p(node_9p *np, uint32_t *np_)
+{
+	dirent_9p *dp;
+	uint32_t nd, iounit;
+	fid_9p fid;
+	qid_9p qid;
+	int e;
+
+	if ((e = walk_9p(np->nmp, np->fid, NULL, 0, &fid, &qid)))
+		return e;
+	if ((e = lopen_9p(np->nmp, fid, L_O_RDONLY, &qid, &iounit)) == 0 &&
+	    (e = readdirs_9p(np->nmp, fid, &dp, &nd)) == 0) {
+		free_9p(dp);
+		*np_ = nd;
+	}
+	clunk_9p(np->nmp, fid);
+	return e;
+}
+
 static int
 vnop_getattr_9p(struct vnop_getattr_args *ap)
 {
@@ -555,6 +576,13 @@ vnop_getattr_9p(struct vnop_getattr_args *ap)
 	VATTR_RETURN(vap, va_type, vtype_9p(np->attr.mode));
 	VATTR_RETURN(vap, va_mode, np->attr.mode & 07777);
 	VATTR_RETURN(vap, va_nlink, np->attr.nlink);
+	if (VATTR_IS_ACTIVE(vap, va_nchildren) && vnode_isdir(ap->a_vp)) {
+		uint32_t nc = 0;
+
+		/* else the VFS takes nlink - 2, and a host may count 1 */
+		if (nchildren_9p(np, &nc) == 0)
+			VATTR_RETURN(vap, va_nchildren, nc);
+	}
 	VATTR_RETURN(vap, va_uid, nmp->uid);
 	VATTR_RETURN(vap, va_gid, nmp->gid);
 	VATTR_RETURN(vap, va_rdev, 0);
