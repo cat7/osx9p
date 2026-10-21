@@ -1,10 +1,11 @@
 #!/bin/sh
-# Guest additions CD: an Installer package for 10.4/10.5 on a hybrid
+# Guest additions CD: an Installer package for 10.3 to 10.5 on a hybrid
 # CD image. Run after make, as root: sudo dist/mkcd.sh [out.iso]
 set -e
 cd "$(dirname "$0")/.."
 [ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
-[ -d kext/osx9p.kext ] && [ -x mount/mount_9p ] || { echo "run make first" >&2; exit 1; }
+[ -d kext/osx9p.kext ] && [ -d panther/osx9p.kext ] && [ -x mount/mount_9p ] ||
+    { echo "run make first" >&2; exit 1; }
 
 VER=$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' kext/Info.plist)
 MAJ=${VER%%.*}
@@ -21,9 +22,13 @@ cp -R kext/osx9p.kext "$R/System/Library/Extensions/"
 cp mount/mount_9p "$R/sbin/"
 cp support/automount support/uninstall.sh "$SUP/"
 cp support/org.cat7.osx9p.automount.plist "$R/Library/LaunchDaemons/"
+# for 10.3, which postflight puts in place there
+mkdir -p "$SUP/Panther" "$SUP/StartupItem"
+cp -R panther/osx9p.kext "$SUP/Panther/"
+cp support/StartupItem/osx9p support/StartupItem/StartupParameters.plist "$SUP/StartupItem/"
 find "$R" -type d -exec chmod 755 {} \;
 find "$R" -type f -exec chmod 644 {} \;
-chmod 755 "$R/sbin/mount_9p" "$SUP/automount" "$SUP/uninstall.sh"
+chmod 755 "$R/sbin/mount_9p" "$SUP/automount" "$SUP/uninstall.sh" "$SUP/StartupItem/osx9p"
 chown -R root:wheel "$R"
 chown root:admin "$R" "$R/Library" "$R/Library/Application Support"
 chmod 1775 "$R" "$R/Library"

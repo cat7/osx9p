@@ -3,10 +3,12 @@
 Shared folders for PowerPC Mac OS X guests in QEMU: a kernel extension
 that mounts a `virtio-9p-pci` share as a volume.
 
-- Mac OS X 10.4 and 10.5 (PowerPC)
+- Mac OS X 10.3, 10.4 and 10.5 (PowerPC)
 - 9P2000.L over the virtio 1.0 PCI interface
 - Finder info and resource forks are kept as the host's
   `com.apple.FinderInfo` / `com.apple.ResourceFork` extended attributes
+  (on 10.3 the driver shows them to Carbon as AppleDouble `._` files,
+  which never reach the host)
 
 ## QEMU
 
@@ -18,28 +20,30 @@ lets Mac OS 9 guests with classicvirtio use the same share).
 
 ## Building
 
-On Mac OS X 10.4 with Xcode 2.5 (10.4u SDK):
+On Mac OS X 10.4 with Xcode 2.5 (10.4u and 10.3.9 SDKs):
 
     make
 
-This produces `kext/osx9p.kext` and `mount/mount_9p`. The same build loads
-on 10.5.
+This produces `kext/osx9p.kext` (10.4 and 10.5), `panther/osx9p.kext`
+(10.3, which predates the kernel programming interfaces) and
+`mount/mount_9p` (all three).
 
 ## Guest additions CD
 
     make && sudo make cd
 
-builds `osx9p-<version>.iso`: an Installer package for 10.4 and 10.5, a
+builds `osx9p-<version>.iso`: an Installer package for 10.3 to 10.5, a
 ReadMe and an uninstaller. Attach it to the guest as a CD
-(`-drive file=osx9p-1.0.0.iso,media=cdrom`) and open `osx9p.pkg`. The
-package installs the driver, `/sbin/mount_9p` and a launchd job that
-mounts every share at `/Volumes/<mount tag>` at startup; the shares are
-mounted as soon as the installer finishes.
+(`-drive file=osx9p-1.1.0.iso,media=cdrom`) and open `osx9p.pkg`. The
+package installs the driver for the running system, `/sbin/mount_9p` and
+a launchd job (a startup item on 10.3) that mounts every share at
+`/Volumes/<mount tag>` at startup; the shares are mounted as soon as the
+installer finishes.
 
 ## Use by hand
 
 
-    sudo cp -R kext/osx9p.kext /tmp/ && sudo chown -R root:wheel /tmp/osx9p.kext
+    sudo cp -R kext/osx9p.kext /tmp/ && sudo chown -R root:wheel /tmp/osx9p.kext   # panther/ on 10.3
     sudo kextload /tmp/osx9p.kext
     mkdir /Volumes/Shared
     mount/mount_9p -o volume=Shared Shared /Volumes/Shared
@@ -52,6 +56,9 @@ mounted as soon as the installer finishes.
   the host does not see them.
 - File IDs (needed by Carbon on 10.4) are kept in memory: a file that has
   not been seen since the mount cannot be found by ID alone.
+- On 10.3 the Finder cannot eject a share (unmount it with `umount`), and
+  Move to Trash deletes at once: the Finder treats a volume without a
+  disk device as a server volume there.
 
 ## License
 

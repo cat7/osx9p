@@ -9,6 +9,7 @@ mount -t 9p | sed -n 's/^.* on \(.*\) (.*$/\1/p' | while read -r d; do
 done
 launchctl unload "$LD" 2>/dev/null
 rm -f "$LD" /sbin/mount_9p
+rm -rf /Library/StartupItems/osx9p
 rm -rf "/Library/Application Support/osx9p"
 kextunload -b org.cat7.osx9p 2>/dev/null
 rm -rf /System/Library/Extensions/osx9p.kext

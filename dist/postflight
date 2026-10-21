@@ -1,6 +1,26 @@
 #!/bin/sh
-# Load the driver and mount the shares now; launchd mounts them at boot.
-touch "$3/System/Library/Extensions"
-kextload "$3/System/Library/Extensions/osx9p.kext" >/dev/null 2>&1
-launchctl load "$3/Library/LaunchDaemons/org.cat7.osx9p.automount.plist"
+# Load the driver and mount the shares now; launchd (10.4 and later) or a
+# startup item (10.3) mounts them at boot.
+SUP="$3/Library/Application Support/osx9p"
+EXT="$3/System/Library/Extensions"
+case $(uname -r) in
+7.*)
+	# Mac OS X 10.3 has a driver of its own, and no launchd
+	rm -rf "$EXT/osx9p.kext" "$3/Library/LaunchDaemons/org.cat7.osx9p.automount.plist"
+	cp -R "$SUP/Panther/osx9p.kext" "$EXT/"
+	chown -R root:wheel "$EXT/osx9p.kext"
+	mkdir -p "$3/Library/StartupItems"
+	rm -rf "$3/Library/StartupItems/osx9p"
+	cp -R "$SUP/StartupItem" "$3/Library/StartupItems/osx9p"
+	chown -R root:wheel "$3/Library/StartupItems/osx9p"
+	touch "$EXT"
+	kextload "$EXT/osx9p.kext" >/dev/null 2>&1
+	"$SUP/automount"
+	;;
+*)
+	touch "$EXT"
+	kextload "$EXT/osx9p.kext" >/dev/null 2>&1
+	launchctl load "$3/Library/LaunchDaemons/org.cat7.osx9p.automount.plist"
+	;;
+esac
 exit 0

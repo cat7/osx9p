@@ -1,0 +1,21 @@
+#!/bin/sh
+# Mac OS X 10.3: mount the virtio-9p shares at startup.
+. /etc/rc.common
+
+StartService()
+{
+	ConsoleMessage "Mounting virtio-9p shared folders"
+	"/Library/Application Support/osx9p/automount"
+}
+
+StopService()
+{
+	return 0
+}
+
+RestartService()
+{
+	StartService
+}
+
+RunService "$1"

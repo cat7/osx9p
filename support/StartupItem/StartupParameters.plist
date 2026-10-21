@@ -1,0 +1,6 @@
+{
+  Description     = "virtio-9p shared folders";
+  Provides        = ("osx9p");
+  Requires        = ("Disks");
+  OrderPreference = "Late";
+}

@@ -7,5 +7,5 @@ mount -t 9p | sed -n 's/^.* on \(.*\) (.*$/\1/p' | while read -r d; do
 	rmdir "$d" 2>/dev/null
 done
 kextunload -b org.cat7.osx9p >/dev/null 2>&1
-rm -rf "$3/System/Library/Extensions/osx9p.kext"
+rm -rf "$3/System/Library/Extensions/osx9p.kext" "$3/Library/StartupItems/osx9p"
 exit 0
