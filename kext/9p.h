@@ -13,9 +13,12 @@
 #define MNTFROM9P	"virtio/" BSDNAME9P
 #define VOLNAMELEN	256
 
-/* mount(2) data; a local-volume fs gets it past the device path pointer */
+/*
+ * mount(2) data; a local-volume fs on 10.4 gets it past the device path
+ * pointer, while 10.3 hands the whole structure to the fs
+ */
 typedef struct {
-#ifndef KERNEL
+#if !defined(KERNEL) || defined(PANTHER)
 	char *fspec;
 #endif
 	char tag[TAGLEN];
@@ -30,6 +33,9 @@ enum {
 };
 
 #ifdef KERNEL
+#ifdef PANTHER
+#include "../panther/panther.h"
+#else
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -49,6 +55,7 @@ enum {
 #include <kern/locks.h>
 #include <libkern/OSAtomic.h>
 #include <string.h>
+#endif
 #include "virtio9p.h"
 
 #ifndef nelem
@@ -120,6 +127,22 @@ enum {
 typedef struct node_9p node_9p;
 typedef struct mount_9p mount_9p;
 
+/* open fids by access mode */
+enum {
+	OFID_RD,
+	OFID_WR,
+	OFID_RDWR,
+	NOFIDS
+};
+
+typedef struct {
+	fid_9p fid;
+	uint32_t ref;
+} openfid_9p;
+
+#ifdef PANTHER
+#include "../panther/node.h"
+#else
 /* node flags */
 enum {
 	NODE_INIT	= 1<<0,
@@ -135,19 +158,6 @@ typedef enum {
 	NODE_LCK_SHARED,
 	NODE_LCK_EXCLUSIVE,
 } lcktype_9p;
-
-/* open fids by access mode */
-enum {
-	OFID_RD,
-	OFID_WR,
-	OFID_RDWR,
-	NOFIDS
-};
-
-typedef struct {
-	fid_9p fid;
-	uint32_t ref;
-} openfid_9p;
 
 struct node_9p {
 	LIST_ENTRY(node_9p) next;
@@ -204,33 +214,6 @@ struct mount_9p {
 	struct idtab_9p *ids;
 };
 
-/* proto.c */
-__private_extern__ int version_9p(mount_9p*);
-__private_extern__ int attach_9p(mount_9p*, fid_9p*, qid_9p*);
-__private_extern__ int walk_9p(mount_9p*, fid_9p, char*, int, fid_9p*, qid_9p*);
-__private_extern__ int getattr_9p(mount_9p*, fid_9p, attr_9p*);
-__private_extern__ int setattr_9p(mount_9p*, fid_9p, uint32_t, uint32_t, uint64_t, struct timespec*, struct timespec*);
-__private_extern__ int lopen_9p(mount_9p*, fid_9p, uint32_t, qid_9p*, uint32_t*);
-__private_extern__ int lcreate_9p(mount_9p*, fid_9p, char*, int, uint32_t, uint32_t, qid_9p*, uint32_t*);
-__private_extern__ int mkdir_9p(mount_9p*, fid_9p, char*, int, uint32_t, qid_9p*);
-__private_extern__ int symlink_9p(mount_9p*, fid_9p, char*, int, char*, qid_9p*);
-__private_extern__ int readlink_9p(mount_9p*, fid_9p, char**);
-__private_extern__ int read_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
-__private_extern__ int write_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
-__private_extern__ int clunk_9p(mount_9p*, fid_9p);
-__private_extern__ int unlinkat_9p(mount_9p*, fid_9p, char*, int, uint32_t);
-__private_extern__ int renameat_9p(mount_9p*, fid_9p, char*, int, fid_9p, char*, int);
-__private_extern__ int readdirs_9p(mount_9p*, fid_9p, dirent_9p**, uint32_t*);
-__private_extern__ int statfs_9p(mount_9p*, fid_9p, fsstat_9p*);
-__private_extern__ int fsync_9p(mount_9p*, fid_9p);
-__private_extern__ int xattrwalk_9p(mount_9p*, fid_9p, const char*, fid_9p*, uint64_t*);
-__private_extern__ int xattrcreate_9p(mount_9p*, fid_9p, const char*, uint64_t, uint32_t);
-__private_extern__ uint32_t iosize_9p(mount_9p*);
-
-/* vfsops.c */
-__private_extern__ void* malloc_9p(size_t);
-__private_extern__ void free_9p(void*);
-
 /* vnops.c */
 __private_extern__ int nget_9p(mount_9p*, fid_9p, qid_9p, vnode_t, vnode_t*, struct componentname*, vfs_context_t);
 __private_extern__ int ngetattr_9p(node_9p*, int);
@@ -274,12 +257,40 @@ __private_extern__ void lock_fini_9p(void);
 __private_extern__ void lock_free_9p(node_9p*);
 __private_extern__ int vnop_advlock_9p(struct vnop_advlock_args*);
 
+#define MTO9P(m)	((mount_9p*)vfs_fsprivate(m))
+#define NTO9P(vp)	((node_9p*)vnode_fsnode(vp))
+#endif /* PANTHER */
+
+/* proto.c */
+__private_extern__ int version_9p(mount_9p*);
+__private_extern__ int attach_9p(mount_9p*, fid_9p*, qid_9p*);
+__private_extern__ int walk_9p(mount_9p*, fid_9p, char*, int, fid_9p*, qid_9p*);
+__private_extern__ int getattr_9p(mount_9p*, fid_9p, attr_9p*);
+__private_extern__ int setattr_9p(mount_9p*, fid_9p, uint32_t, uint32_t, uint64_t, struct timespec*, struct timespec*);
+__private_extern__ int lopen_9p(mount_9p*, fid_9p, uint32_t, qid_9p*, uint32_t*);
+__private_extern__ int lcreate_9p(mount_9p*, fid_9p, char*, int, uint32_t, uint32_t, qid_9p*, uint32_t*);
+__private_extern__ int mkdir_9p(mount_9p*, fid_9p, char*, int, uint32_t, qid_9p*);
+__private_extern__ int symlink_9p(mount_9p*, fid_9p, char*, int, char*, qid_9p*);
+__private_extern__ int readlink_9p(mount_9p*, fid_9p, char**);
+__private_extern__ int read_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
+__private_extern__ int write_9p(mount_9p*, fid_9p, void*, uint32_t, uint64_t, uint32_t*);
+__private_extern__ int clunk_9p(mount_9p*, fid_9p);
+__private_extern__ int unlinkat_9p(mount_9p*, fid_9p, char*, int, uint32_t);
+__private_extern__ int renameat_9p(mount_9p*, fid_9p, char*, int, fid_9p, char*, int);
+__private_extern__ int readdirs_9p(mount_9p*, fid_9p, dirent_9p**, uint32_t*);
+__private_extern__ int statfs_9p(mount_9p*, fid_9p, fsstat_9p*);
+__private_extern__ int fsync_9p(mount_9p*, fid_9p);
+__private_extern__ int xattrwalk_9p(mount_9p*, fid_9p, const char*, fid_9p*, uint64_t*);
+__private_extern__ int xattrcreate_9p(mount_9p*, fid_9p, const char*, uint64_t, uint32_t);
+__private_extern__ uint32_t iosize_9p(mount_9p*);
+
+/* vfsops.c */
+__private_extern__ void* malloc_9p(size_t);
+__private_extern__ void free_9p(void*);
+
 /* virtio9p.cpp */
 void v9p_transport_init(void);
 void v9p_transport_fini(void);
-
-#define MTO9P(m)	((mount_9p*)vfs_fsprivate(m))
-#define NTO9P(vp)	((node_9p*)vnode_fsnode(vp))
 
 #ifdef DEBUG9P
 #define DEBUG(f, a...)	printf("9p: %s: " f "\n", __FUNCTION__, ## a)

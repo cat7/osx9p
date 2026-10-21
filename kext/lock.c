@@ -14,7 +14,73 @@ struct lock_9p {
 	off_t start, end;	/* inclusive; end -1 = to EOF and beyond */
 };
 
+#ifdef PANTHER
+/* the kernel funnel serialises us until we sleep: a flag is the mutex */
+static int lockbusy_9p, lockwant_9p;
+
+static void
+lkenter(void)
+{
+	while (lockbusy_9p) {
+		lockwant_9p = 1;
+		tsleep(&lockbusy_9p, PLOCK, "9p_lktab", 0);
+	}
+	lockbusy_9p = 1;
+}
+
+static void
+lkexit(void)
+{
+	lockbusy_9p = 0;
+	if (lockwant_9p) {
+		lockwant_9p = 0;
+		wakeup(&lockbusy_9p);
+	}
+}
+
+static int
+lksleep(void *chan)
+{
+	int e;
+
+	lkexit();
+	e = tsleep(chan, PLOCK | PCATCH, "9p_lock", 0);
+	lkenter();
+	return e;
+}
+
+__private_extern__ void
+lock_init_9p(void)
+{
+}
+
+__private_extern__ void
+lock_fini_9p(void)
+{
+}
+
+#define lkpid(id)	(((struct proc *)(id))->p_pid)
+#define advlock_args	vop_advlock_args
+#else
 static lck_mtx_t *lockmtx_9p;
+
+static void
+lkenter(void)
+{
+	lck_mtx_lock(lockmtx_9p);
+}
+
+static void
+lkexit(void)
+{
+	lck_mtx_unlock(lockmtx_9p);
+}
+
+static int
+lksleep(void *chan)
+{
+	return msleep(chan, lockmtx_9p, PLOCK | PCATCH, "9p_lock", NULL);
+}
 
 __private_extern__ void
 lock_init_9p(void)
@@ -29,6 +95,10 @@ lock_fini_9p(void)
 		lck_mtx_free(lockmtx_9p, lck_grp_9p);
 	lockmtx_9p = NULL;
 }
+
+#define lkpid(id)	proc_pid((proc_t)(id))
+#define advlock_args	vnop_advlock_args
+#endif
 
 static int
 overlaps(struct lock_9p *l, off_t start, off_t end)
@@ -99,16 +169,16 @@ lock_free_9p(node_9p *np)
 {
 	struct lock_9p *l;
 
-	lck_mtx_lock(lockmtx_9p);
+	lkenter();
 	while ((l = np->locks) != NULL) {
 		np->locks = l->next;
 		free_9p(l);
 	}
-	lck_mtx_unlock(lockmtx_9p);
+	lkexit();
 }
 
 __private_extern__ int
-vnop_advlock_9p(struct vnop_advlock_args *ap)
+vnop_advlock_9p(struct advlock_args *ap)
 {
 	struct flock *fl;
 	struct lock_9p *l, *n;
@@ -125,9 +195,16 @@ vnop_advlock_9p(struct vnop_advlock_args *ap)
 		start = fl->l_start;
 		break;
 	case SEEK_END:
+#ifdef PANTHER
+		start = np->attr.size;
+		if (UBCINFOEXISTS(ap->a_vp))
+			start = MAX(start, ubc_getsize(ap->a_vp));
+		start += fl->l_start;
+#else
 		nlock_9p(np, NODE_LCK_SHARED);
 		start = MAX((off_t)np->attr.size, ubc_getsize(ap->a_vp)) + fl->l_start;
 		nunlock_9p(np);
+#endif
 		break;
 	default:
 		return EINVAL;
@@ -142,7 +219,7 @@ vnop_advlock_9p(struct vnop_advlock_args *ap)
 	if (start < 0)
 		return EINVAL;
 
-	lck_mtx_lock(lockmtx_9p);
+	lkenter();
 	e = 0;
 	switch (ap->a_op) {
 	case F_GETLK:
@@ -172,7 +249,7 @@ vnop_advlock_9p(struct vnop_advlock_args *ap)
 				e = EAGAIN;
 				goto out;
 			}
-			e = msleep(&np->locks, lockmtx_9p, PLOCK | PCATCH, "9p_lock", NULL);
+			e = lksleep(&np->locks);
 			if (e)
 				goto out;
 		}
@@ -189,7 +266,7 @@ vnop_advlock_9p(struct vnop_advlock_args *ap)
 		n->id = ap->a_id;
 		n->flags = ap->a_flags & (F_POSIX | F_FLOCK);
 		n->type = fl->l_type;
-		n->pid = ISSET(ap->a_flags, F_POSIX) ? proc_pid((proc_t)ap->a_id) : -1;
+		n->pid = ISSET(ap->a_flags, F_POSIX) ? lkpid(ap->a_id) : -1;
 		n->start = start;
 		n->end = end;
 		n->next = np->locks;
@@ -202,6 +279,6 @@ vnop_advlock_9p(struct vnop_advlock_args *ap)
 		break;
 	}
 out:
-	lck_mtx_unlock(lockmtx_9p);
+	lkexit();
 	return e;
 }

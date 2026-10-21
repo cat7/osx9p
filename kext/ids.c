@@ -21,8 +21,19 @@ struct id_9p {
 
 LIST_HEAD(idhead_9p, id_9p);
 
+#ifdef PANTHER
+/* the kernel funnel serialises the table: nothing sleeps while it is held */
+#define IDLOCK(t)
+#define IDUNLOCK(t)
+#else
+#define IDLOCK(t)	lck_mtx_lock((t)->mtx)
+#define IDUNLOCK(t)	lck_mtx_unlock((t)->mtx)
+#endif
+
 struct idtab_9p {
+#ifndef PANTHER
 	lck_mtx_t *mtx;
+#endif
 	struct idhead_9p byid[IDHASH];
 	struct idhead_9p byqid[IDHASH];
 	uint64_t rootqpath;
@@ -60,11 +71,13 @@ ids_init_9p(mount_9p *nmp, uint64_t rootqpath)
 	t = malloc_9p(sizeof(*t));
 	if (t == NULL)
 		return ENOMEM;
+#ifndef PANTHER
 	t->mtx = lck_mtx_alloc_init(lck_grp_9p, LCK_ATTR_NULL);
 	if (t->mtx == NULL) {
 		free_9p(t);
 		return ENOMEM;
 	}
+#endif
 	for (i = 0; i < IDHASH; i++) {
 		LIST_INIT(&t->byid[i]);
 		LIST_INIT(&t->byqid[i]);
@@ -92,7 +105,9 @@ ids_fini_9p(mount_9p *nmp)
 			free_9p(r->name);
 			free_9p(r);
 		}
+#ifndef PANTHER
 	lck_mtx_free(t->mtx, lck_grp_9p);
+#endif
 	free_9p(t);
 	nmp->ids = NULL;
 }
@@ -108,7 +123,7 @@ id_get_9p(mount_9p *nmp, uint64_t qpath)
 	t = nmp->ids;
 	if (qpath == t->rootqpath)
 		return ID_ROOT;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findqid(t, qpath);
 	if (r) {
 		id = r->id;
@@ -123,12 +138,12 @@ id_get_9p(mount_9p *nmp, uint64_t qpath)
 		if (findid(t, t->spare) == NULL)
 			id = t->spare;
 	}
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 
 	r = malloc_9p(sizeof(*r));
 	if (r == NULL)
 		return id;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	if (findqid(t, qpath)) {
 		/* raced */
 		id = findqid(t, qpath)->id;
@@ -140,7 +155,7 @@ id_get_9p(mount_9p *nmp, uint64_t qpath)
 	LIST_INSERT_HEAD(&t->byid[id % IDHASH], r, byid);
 	LIST_INSERT_HEAD(&t->byqid[qpath % IDHASH], r, byqid);
 out:
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	return id;
 }
 
@@ -160,7 +175,7 @@ id_link_9p(mount_9p *nmp, uint32_t id, uint32_t parent, const char *name, int nn
 		return;
 	bcopy(name, s, nname);
 	s[nname] = 0;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	if (r) {
 		r->parent = parent;
@@ -168,7 +183,7 @@ id_link_9p(mount_9p *nmp, uint32_t id, uint32_t parent, const char *name, int nn
 		r->name = s;
 		s = NULL;
 	}
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	free_9p(s);
 }
 
@@ -179,13 +194,13 @@ id_forget_9p(mount_9p *nmp, uint32_t id)
 	struct id_9p *r;
 
 	t = nmp->ids;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	if (r) {
 		LIST_REMOVE(r, byid);
 		LIST_REMOVE(r, byqid);
 	}
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	if (r) {
 		free_9p(r->name);
 		free_9p(r);
@@ -202,10 +217,10 @@ id_parent_9p(mount_9p *nmp, uint32_t id)
 	if (id == ID_ROOT)
 		return ID_ROOTPARENT;
 	t = nmp->ids;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	p = r && r->parent ? r->parent : ID_ROOT;
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	return p;
 }
 
@@ -220,7 +235,7 @@ id_name_9p(mount_9p *nmp, uint32_t id, char *buf, int len)
 	if (id == ID_ROOT)
 		return ENOENT;
 	t = nmp->ids;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	e = ENOENT;
 	if (r && r->name) {
@@ -229,7 +244,7 @@ id_name_9p(mount_9p *nmp, uint32_t id, char *buf, int len)
 		buf[n] = 0;
 		e = 0;
 	}
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	return e;
 }
 
@@ -243,33 +258,106 @@ id_where(mount_9p *nmp, uint32_t id, uint32_t *parent, char **name, uint64_t *qp
 	int n;
 
 	t = nmp->ids;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	if (r == NULL || r->name == NULL) {
-		lck_mtx_unlock(t->mtx);
+		IDUNLOCK(t);
 		return ENOENT;
 	}
 	*parent = r->parent;
 	*qpath = r->qpath;
 	n = strlen(r->name);
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 
 	s = malloc_9p(n + 1);
 	if (s == NULL)
 		return ENOMEM;
-	lck_mtx_lock(t->mtx);
+	IDLOCK(t);
 	r = findid(t, id);
 	if (r == NULL || r->name == NULL || (int)strlen(r->name) != n) {
-		lck_mtx_unlock(t->mtx);
+		IDUNLOCK(t);
 		free_9p(s);
 		return ENOENT;
 	}
 	bcopy(r->name, s, n + 1);
-	lck_mtx_unlock(t->mtx);
+	IDUNLOCK(t);
 	*name = s;
 	return 0;
 }
 
+#ifdef PANTHER
+/* the vnode for id, locked and referenced, as VFS_VGET returns it */
+__private_extern__ int
+id_vget_9p(mount_9p *nmp, uint32_t id, struct vnode **vpp, struct proc *p, int depth)
+{
+	struct vnode *dvp, *vp;
+	uint32_t parent;
+	uint64_t qpath;
+	node_9p *dnp, *np;
+	fid_9p fid, ofid;
+	qid_9p qid;
+	char *name;
+	int e;
+
+	*vpp = NULL;
+	if (id == ID_ROOT || id == ID_ROOTPARENT) {
+		vp = nmp->root;
+		while ((e = vget(vp, LK_EXCLUSIVE, p)))
+			if (e != ENOENT)
+				return e;
+		*vpp = vp;
+		return 0;
+	}
+	if (depth > 256)
+		return ELOOP;
+	if ((e = id_where(nmp, id, &parent, &name, &qpath)))
+		return e;
+
+	/* cached, and its fid still names it? */
+	bzero(&qid, sizeof(qid));
+	qid.path = qpath;
+	if (nget_9p(nmp, NOFID, qid, 0, &vp, p) == 0) {
+		if (ngetattr_9p(NTO9P(vp), 0) != ENOENT) {
+			free_9p(name);
+			*vpp = vp;
+			return 0;
+		}
+		vput(vp);
+	}
+
+	if ((e = id_vget_9p(nmp, parent, &dvp, p, depth + 1))) {
+		free_9p(name);
+		return e;
+	}
+	dnp = NTO9P(dvp);
+	e = walk_9p(nmp, dnp->fid, name, strlen(name), &fid, &qid);
+	if (e == 0 && qid.path != qpath) {
+		/* replaced on the host */
+		clunk_9p(nmp, fid);
+		e = ENOENT;
+	}
+	if (e == 0) {
+		e = nget_9p(nmp, fid, qid, 0, &vp, p);
+		if (e == 0) {
+			np = NTO9P(vp);
+			if (np->fid != fid) {
+				/* renamed on the host: keep the fid that names it now */
+				ofid = np->fid;
+				np->fid = fid;
+				np->attrtime = 0;
+				fid = ofid;
+			} else
+				fid = NOFID;
+			*vpp = vp;
+		}
+		if (fid != NOFID)
+			clunk_9p(nmp, fid);
+	}
+	vput(dvp);
+	free_9p(name);
+	return e;
+}
+#else
 /* the vnode for id, with an iocount, unlocked */
 __private_extern__ int
 id_vget_9p(mount_9p *nmp, uint32_t id, vnode_t *vpp, vfs_context_t ctx, int depth)
@@ -342,3 +430,4 @@ id_vget_9p(mount_9p *nmp, uint32_t id, vnode_t *vpp, vfs_context_t ctx, int dept
 	free_9p(name);
 	return e;
 }
+#endif

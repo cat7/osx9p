@@ -256,7 +256,8 @@ org_cat7_virtio9p::setIcon(void)
 	OSDictionary *d;
 	OSString *s;
 
-	snprintf(name, sizeof(name), "9p-%s", fTag);
+	bcopy("9p-", name, 3);
+	bcopy(fTag, name + 3, strlen(fTag) + 1);
 	setProperty("BSD Name", name);
 	if ((d = OSDictionary::withCapacity(2)) == NULL)
 		return;
@@ -484,7 +485,7 @@ int
 org_cat7_virtio9p::rpc(const void *tx, uint32_t txlen, void *rx, uint32_t rxmax, uint32_t *rxlen)
 {
 	uint8_t *desc, *avail, *used;
-	uint64_t deadline;
+	AbsoluteTime deadline;
 	uint32_t len, slot;
 	int e;
 
@@ -521,9 +522,13 @@ org_cat7_virtio9p::rpc(const void *tx, uint32_t txlen, void *rx, uint32_t rxmax,
 
 	IOLockLock(fWaitLock);
 	while (OSReadLittleInt16(used, 2) == fUsedIdx) {
+#ifdef PANTHER
 		clock_interval_to_deadline(5, kMillisecondScale, &deadline);
+#else
+		clock_interval_to_deadline(5, kMillisecondScale, (uint64_t *)&deadline);
+#endif
 		IOLockSleepDeadline(fWaitLock, (void *)&fUsedIdx,
-				    *(AbsoluteTime *)&deadline, THREAD_UNINT);
+				    deadline, THREAD_UNINT);
 	}
 	IOLockUnlock(fWaitLock);
 	__asm__ volatile("sync" ::: "memory");
