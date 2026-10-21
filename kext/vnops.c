@@ -1055,17 +1055,25 @@ vnop_readdir_9p(struct vnop_readdir_args *ap)
 			goto out;
 	}
 
+	/* entries 0 and 1 are "." and "..", which the server leaves out */
 	dp = np->dirents;
-	nd = np->ndirents;
+	nd = np->ndirents + 2;
 	for (i = off; i < nd; i++) {
 		bzero(&de, sizeof(de));
-		de.d_fileno = id_get_9p(np->nmp, dp[i].qid.path);
-		de.d_type = dp[i].type;
-		nlen = strlen(dp[i].name);
-		de.d_namlen = MIN(nlen, sizeof(de.d_name) - 1);
-		bcopy(dp[i].name, de.d_name, de.d_namlen);
+		if (i < 2) {
+			de.d_fileno = i == 0 ? np->id : id_parent_9p(np->nmp, np->id);
+			de.d_type = DT_DIR;
+			de.d_namlen = i + 1;
+			bcopy("..", de.d_name, de.d_namlen);
+		} else {
+			de.d_fileno = id_get_9p(np->nmp, dp[i - 2].qid.path);
+			de.d_type = dp[i - 2].type;
+			nlen = strlen(dp[i - 2].name);
+			de.d_namlen = MIN(nlen, sizeof(de.d_name) - 1);
+			bcopy(dp[i - 2].name, de.d_name, de.d_namlen);
+			id_link_9p(np->nmp, de.d_fileno, np->id, de.d_name, de.d_namlen);
+		}
 		de.d_reclen = DIRENT32_LEN(de.d_namlen);
-		id_link_9p(np->nmp, de.d_fileno, np->id, de.d_name, de.d_namlen);
 		if (uio_resid(uio) < de.d_reclen)
 			break;
 		if ((e = uiomove((caddr_t)&de, de.d_reclen, uio)))
