@@ -8,9 +8,17 @@
  */
 #include <sys/param.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
+#include <AvailabilityMacros.h>
 #include <CoreFoundation/CoreFoundation.h>
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 1040
+/* the 10.3 SDK: DiskArbitration is private there */
+#define kDADiskOptionMountAutomaticNoDefer	0x00000020
+#define DLOPEN_NO_WARN
+#else
 #include <DiskArbitration/DiskArbitration.h>
+#endif
 #include <dlfcn.h>
 #include <err.h>
 #include <stdio.h>
@@ -19,6 +27,10 @@
 #include <sysexits.h>
 #include <unistd.h>
 #include "../kext/9p.h"
+
+#ifndef MNT_IGNORE_OWNERSHIP
+#define MNT_IGNORE_OWNERSHIP	MNT_UNKNOWNPERMISSIONS
+#endif
 
 static void
 usage(void)
@@ -59,19 +71,19 @@ options(char *s, args_9p *a, int *mntflags)
 	}
 }
 
-/* Mac OS X 10.4 */
+/* Darwin major version: 7 is Mac OS X 10.3, 8 is 10.4 */
 static int
-darwin8(void)
+darwin(void)
 {
 	struct utsname u;
 
 	if (uname(&u) < 0)
 		return 0;
-	return strncmp(u.release, "8.", 2) == 0;
+	return atoi(u.release);
 }
 
 /*
- * diskarbitrationd on 10.4 knows a volume without a device only after a
+ * diskarbitrationd on 10.3 and 10.4 knows a volume without a device only after a
  * refresh; Carbon ejects every volume through it.  Without NoDefer it
  * unmounts the volume when no one is logged in, as at startup.
  * DiskManagement takes a local volume there for a device and hangs, so
@@ -88,6 +100,8 @@ darefresh(const char *dir)
 	CFURLRef url;
 
 	h = dlopen("/System/Library/Frameworks/DiskArbitration.framework/DiskArbitration", RTLD_LAZY);
+	if (h == NULL)	/* 10.3 */
+		h = dlopen("/System/Library/PrivateFrameworks/DiskArbitration.framework/DiskArbitration", RTLD_LAZY);
 	if (h == NULL)
 		return;
 	sessioncreate = dlsym(h, "DASessionCreate");
@@ -114,17 +128,44 @@ darefresh(const char *dir)
 	CFRelease(session);
 }
 
+/* someone has logged in at the console */
+static int
+loggedin(void)
+{
+	struct stat st;
+
+	return stat("/dev/console", &st) == 0 && st.st_uid != 0;
+}
+
 int
 main(int argc, char **argv)
 {
 	char dir[MAXPATHLEN];
 	args_9p a;
-	int c, d8, mntflags;
+	int c, da, mntflags;
 
 	memset(&a, 0, sizeof(a));
 	mntflags = MNT_NODEV | MNT_NOSUID | MNT_IGNORE_OWNERSHIP;
-	if ((d8 = darwin8()))
+	switch (darwin()) {
+	case 7:
+		/*
+		 * Carbon on 10.3 stays with AppleDouble, and the Finder lists a
+		 * volfs volume only until it relaunches.  diskarbitrationd there
+		 * unmounts a refreshed volume while no one is logged in; the
+		 * Finder finds the volume when it starts anyway.
+		 */
+		da = loggedin();
+		if (da)
+			a.flags |= FLAG_NOTLOCAL;
+		break;
+	case 8:
+		da = 1;
 		a.flags |= FLAG_VOLFS | FLAG_NOTLOCAL;
+		break;
+	default:
+		da = 0;
+		break;
+	}
 	while ((c = getopt(argc, argv, "o:")) != -1) {
 		switch (c) {
 		case 'o':
@@ -145,7 +186,7 @@ main(int argc, char **argv)
 		err(EX_USAGE, "%s", argv[1]);
 	if (mount(VFS9PNAME, dir, mntflags, &a) < 0)
 		err(EX_OSERR, "%s on %s", a.tag, dir);
-	if (d8) {
+	if (da) {
 		darefresh(dir);
 		a.flags &= ~FLAG_NOTLOCAL;
 		if (mount(VFS9PNAME, dir, mntflags | MNT_UPDATE, &a) < 0)
